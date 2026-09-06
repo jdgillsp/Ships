@@ -2,35 +2,35 @@ export const PRESETS = {
   potato: {
     label: 'POTATO', renderScale: 0.6, maxPixelRatio: 1.0,
     oceanGridX: 128, oceanGridY: 84, fftSize: 128,
-    cloudScale: 0.32, cloudSteps: 34, cloudLightSteps: 4, cloudEnabled: true,
+    cloudScale: 0.32, cloudSteps: 34, cloudInterleave: 4, cloudLightSteps: 4, cloudEnabled: true,
     sprayCount: 6000, rainCount: 9000, dof: false, motionBlur: false, taa: true,
     envSize: 128, envCloudSteps: 12, spoutSteps: 32,
   },
   low: {
     label: 'LOW', renderScale: 0.72, maxPixelRatio: 1.0,
     oceanGridX: 176, oceanGridY: 110, fftSize: 128,
-    cloudScale: 0.36, cloudSteps: 48, cloudLightSteps: 5, cloudEnabled: true,
+    cloudScale: 0.36, cloudSteps: 80, cloudInterleave: 4, cloudLightSteps: 5, cloudEnabled: true,
     sprayCount: 16000, rainCount: 22000, dof: true, motionBlur: true, taa: true,
     envSize: 128, envCloudSteps: 14, spoutSteps: 44,
   },
   medium: {
     label: 'MEDIUM', renderScale: 0.85, maxPixelRatio: 1.25,
     oceanGridX: 240, oceanGridY: 150, fftSize: 256,
-    cloudScale: 0.45, cloudSteps: 66, cloudLightSteps: 6, cloudEnabled: true,
+    cloudScale: 0.45, cloudSteps: 96, cloudInterleave: 4, cloudLightSteps: 6, cloudEnabled: true,
     sprayCount: 40000, rainCount: 48000, dof: true, motionBlur: true, taa: true,
     envSize: 256, envCloudSteps: 16, spoutSteps: 56,
   },
   high: {
     label: 'HIGH', renderScale: 1.0, maxPixelRatio: 1.5,
     oceanGridX: 340, oceanGridY: 210, fftSize: 256,
-    cloudScale: 0.5, cloudSteps: 96, cloudLightSteps: 7, cloudEnabled: true,
+    cloudScale: 0.5, cloudSteps: 96, cloudInterleave: 2, cloudLightSteps: 7, cloudEnabled: true,
     sprayCount: 80000, rainCount: 96000, dof: true, motionBlur: true, taa: true,
     envSize: 256, envCloudSteps: 20, spoutSteps: 72,
   },
   ultra: {
     label: 'ULTRA', renderScale: 1.0, maxPixelRatio: 2.0,
     oceanGridX: 480, oceanGridY: 300, fftSize: 256,
-    cloudScale: 0.62, cloudSteps: 148, cloudLightSteps: 8, cloudEnabled: true,
+    cloudScale: 0.62, cloudSteps: 148, cloudInterleave: 2, cloudLightSteps: 8, cloudEnabled: true,
     sprayCount: 150000, rainCount: 180000, dof: true, motionBlur: true, taa: true,
     envSize: 512, envCloudSteps: 26, spoutSteps: 96,
   },
@@ -58,6 +58,7 @@ export class Quality {
     this.targetMs = 17.5;
     this.dynamicScale = 1.0;
     this._acc = 0;
+    this._elapsed = 0;
     this._count = 0;
     this._cooldown = 0;
     this._window = new Float32Array(SAMPLE_FRAMES);
@@ -75,6 +76,15 @@ export class Quality {
   }
 
   get effectiveScale() { return this.renderScale * this.dynamicScale; }
+
+  /** Start a fresh visible-frame sample without changing the chosen quality. */
+  resetTiming() {
+    this._acc = 0;
+    this._elapsed = 0;
+    this._count = 0;
+    this.historyIndex = 0;
+    this._cooldown = Math.max(this._cooldown, 1);
+  }
 
   /** Name of the preset n tiers cheaper, clamped to the bottom. Null if there. */
   tierBelow(n) {
@@ -124,15 +134,22 @@ export class Quality {
    * Closed loop on frame time. Resolution moves first; if we bottom out and
    * are still slow, drop a whole preset tier.
    */
-  tick(dtMs) {
+  tick(dtMs, workMs = dtMs) {
     this.history[this.historyIndex % this.history.length] = dtMs;
     this.historyIndex++;
     if (!this.adaptive) return false;
 
-    if (this._count < SAMPLE_FRAMES) this._window[this._count] = dtMs;
-    this._acc += dtMs;
-    this._count++;
     this._cooldown -= dtMs / 1000;
+    // Wait briefly for a new asynchronous measurement. The timing source
+    // supplies cadence again if GPU results stall or become unavailable.
+    if (workMs === null) {
+      this._acc = this._elapsed = this._count = 0;
+      return false;
+    }
+    if (this._count < SAMPLE_FRAMES) this._window[this._count] = workMs;
+    this._acc += workMs;
+    this._elapsed += dtMs;
+    this._count++;
 
     // Close the window on frames or on wall time, whichever comes first.
     // Waiting on a fixed frame count is harmless at 60 fps and ruinous at 2:
@@ -140,12 +157,13 @@ export class Quality {
     // the other, and twelve seconds of frozen tab is the exact situation this
     // loop exists to escape.
     if (this._count < MIN_FRAMES) return false;
-    if (this._count < SAMPLE_FRAMES && this._acc < SAMPLE_MS) return false;
+    if (this._count < SAMPLE_FRAMES && this._elapsed < SAMPLE_MS) return false;
 
     const n = this._count;
     const avg = this._acc / n;
     const med = this._median(n);
     this._acc = 0;
+    this._elapsed = 0;
     this._count = 0;
     if (this._cooldown > 0) return false;
 

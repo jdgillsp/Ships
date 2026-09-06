@@ -436,7 +436,13 @@ void main(){
   col = max(col, vec3(0.0));
   float lum = luminance(col);
   col = mix(vec3(lum), col, uSaturation);
-  col = (col - 0.5) * uContrast + 0.5 + uLift;
+  // Contrast in scene-linear space must not subtract a fixed black threshold.
+  // Shape luminance around middle gray in stops, preserving both dark detail
+  // and color ratios; a 1.04 slope previously erased everything below .019.
+  col = max(col, vec3(0.0));
+  float gradeLum = max(luminance(col), 1e-6);
+  col *= pow(gradeLum / 0.18, uContrast - 1.0);
+  col += uLift;
   col = max(col, vec3(0.0));
 
   // ---- tonemap (returns display-linear 0..1)

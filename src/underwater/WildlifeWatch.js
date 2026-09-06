@@ -2,36 +2,12 @@ import * as THREE from 'three';
 import { FIELD_NOTES, projectWildlife, sightlineClear, wildlifeState, readJournal, recordObservation, followFraming } from './FieldNotes.js';
 import { U } from '../core/SharedUniforms.js';
 import { smooth } from './OceanDomain.js';
+import { collectWildlife, readPosition } from './WildlifeSamples.js';
+import { readPhoto, appendPhoto } from './JournalPhotos.js';
+export { collectWildlife } from './WildlifeSamples.js';
 
 const up=new THREE.Vector3(0,1,0);
 const across=new THREE.Vector3(1,0,0);
-function readPosition(s){
-  if(s.mesh){const p=s.mesh.position;s.x=p.x+s.origin[0];s.y=p.y;s.z=p.z+s.origin[1];}
-  else if(s.pose){s.x=s.pose.x;s.y=s.pose.y+(s.centerY||0);s.z=s.pose.z;}
-  return s;
-}
-
-export function collectWildlife(world) {
-  const result=[];
-  for(const a of world.fauna.population)result.push(readPosition({...a,id:`fauna-${a.id}`,pose:world.fauna.poses[a.id]}));
-  for(const a of world.regionalLife?.observables||[])result.push(readPosition({...a,id:`regional-${a.uid}`}));
-  for(const [id,site] of world.sites){
-    if(!site.group.visible)continue;
-    for(const a of site.life.animals){
-      const g=a.mesh.geometry;if(!g.boundingBox)g.computeBoundingBox();
-      const size=g.boundingBox.getSize(new THREE.Vector3());
-      result.push(readPosition({...a,id:`${id}-${a.type}-${a.index}`,origin:site.habitat.origin,span:Math.max(size.x,size.y,size.z)*a.mesh.scale.x}));
-    }
-    // A few actual members let the shoal be observed without asking the picker
-    // to walk thousands of indistinguishable fish on every UI refresh.
-    for(let i=0;i<Math.min(10,site.life.fishData.length);i++){
-      const a=site.life.fishData[i];
-      result.push(readPosition({...a,id:`${id}-shoal-${i}`,type:'shoal',span:a.scale*2,pose:site.life.schoolMotion.poses[i]}));
-    }
-  }
-  for(const s of world.pelagic.observables||[])if(s.visible)result.push({...s});
-  return result;
-}
 
 export class WildlifeWatch {
   constructor(expedition) {
@@ -189,6 +165,7 @@ export class WildlifeWatch {
       const meta=document.createElement('p');meta.className='journal-meta';meta.textContent=`${group} · First seen at ${entry.depth.toLocaleString()} m · Seed ${entry.seed}`;
       const text=document.createElement('p');text.textContent=note;item.append(heading,meta,text);
       if(source){const link=document.createElement('a');link.href=source;link.target='_blank';link.rel='noopener';link.textContent='Natural history';item.appendChild(link);}
+      appendPhoto(item, entry.type, readPhoto(this.storage, entry.type));
       list.appendChild(item);
     }
     this.journal.showModal();

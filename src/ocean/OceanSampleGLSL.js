@@ -1,4 +1,5 @@
 import { OCEAN_COUPLING_GLSL } from './OceanCouplingGLSL.js';
+import { NAVIGATION_SEA_GLSL } from './NavigationSea.js';
 /**
  * Shared ocean field sampling: three FFT cascades + analytic disaster
  * modifiers (solitons, rogue groups, vortices, hurricane swell, currents).
@@ -8,6 +9,7 @@ export const OCEAN_SAMPLE_GLSL = /* glsl */ `
 #ifndef OCEAN_SAMPLE_GLSL
 #define OCEAN_SAMPLE_GLSL 1
 ${OCEAN_COUPLING_GLSL}
+${NAVIGATION_SEA_GLSL}
 
 uniform sampler2D uOceanDisp0, uOceanDisp1, uOceanDisp2;
 uniform sampler2D uOceanDeriv0, uOceanDeriv1, uOceanDeriv2;
@@ -248,12 +250,13 @@ vec3 oceanDisplacementLod(vec2 p, vec3 lods, out float foamHint) {
     vec4 s = textureLod(uOceanDisp2, p / uOceanScales.z, lods.z);
     d += s.xyz * uCascadeGain.z;
   }
-  return d;
+  return d * mix(1.0,0.16,uNavigationSea.x);
 }
 
 /** Full analytic modifier stack, shared by vertex + CPU-side probes. */
 vec3 oceanModifiers(vec2 p, float t, out float crestOut, out float calmOut) {
   vec3 d = vec3(0.0,deepSurfaceWave(p),0.0);
+  d.y += navigationHeight(p);
   crestOut = min(abs(d.y)*0.07,0.55);
   calmOut = 0.0;
 

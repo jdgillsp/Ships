@@ -212,7 +212,9 @@ export class MarineLife {
       const x=Math.sin(a)*radius+f.ox,z=Math.cos(a)*radius+f.oz-8-g*4;
       const bob=time*.23+f.phase*6+f.ox,base=blue?-42:kelp?-24:-24;
       const y=Math.max(floorHeight(x,z,habitat)+.5,base-g*(blue?1.4:.45)+f.oy+Math.sin(bob)*.1);
-      Object.assign(out,{x:x+this.origin[0],y,z:z+this.origin[1],vx:Math.cos(a)*radius*rate,vy:Math.cos(bob)*.023,vz:-Math.sin(a)*radius*rate,heading:a,activity:.55,stroke:time*f.beat*TAU+f.phase*TAU});return out;
+      out.x=x+this.origin[0];out.y=y;out.z=z+this.origin[1];out.vx=Math.cos(a)*radius*rate;
+      out.vy=Math.cos(bob)*.023;out.vz=-Math.sin(a)*radius*rate;out.heading=a;out.activity=.55;
+      out.stroke=time*f.beat*TAU+f.phase*TAU;return out;
     },{floor:(x,z)=>floorHeight(x-this.origin[0],z-this.origin[1],habitat),rocks,perception:1.5});
     if(multiplier>0) {
       if(!deep&&!kelp)for(let i=0;i<2;i++)this.addAnimal('manta',mantaGeometry(),waterMaterial(4,{motion:2,animalMotion:true}),i);

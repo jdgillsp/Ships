@@ -105,6 +105,9 @@ export class BiomeScenery {
     const groups=new Map();this.visibleInstances=0;
     for(const cell of this.cells.values())for(const item of cell.instances){
       const reach=item.type==='kelp'?28:Math.max(item.sx,item.sy,item.sz)*2;
+      // Optional mission clearings leave equipment accessible while retaining
+      // the generated seabed and surrounding habitat. Exploration has none.
+      if(this.clearings?.some(c=>Math.hypot(item.x-c.x,item.z-c.z)<c.radius+reach))continue;
       const range=this.detailRange(item.type);
       if(Math.hypot(item.x-position.x,item.y+reach*.4-position.y,item.z-position.z)>range+reach+12)continue;
       let list=groups.get(item.key);if(!list)groups.set(item.key,list=[]);list.push(item);

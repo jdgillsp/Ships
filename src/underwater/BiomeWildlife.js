@@ -67,7 +67,8 @@ function regionalPose(a,time,recipe,out) {
   if(a.type!=='shoal')return faunaPose(a,time,recipe,out);
   const phase=time*.048+a.cohort,dx=(Math.sin(phase)-Math.sin(a.cohort))*5,dz=(Math.cos(phase)-Math.cos(a.cohort))*4;
   const x=a.x+dx,z=a.z+dz,y=Math.max(oceanFloor(x,z,recipe)+.65,a.y+Math.sin(time*.3+a.phase)*.16);
-  return Object.assign(out,{x,y,z,vx:Math.cos(phase)*.24,vy:0,vz:-Math.sin(phase)*.192,heading:phase,activity:.55,stroke:time*a.beat*TAU+a.phase});
+  out.x=x;out.y=y;out.z=z;out.vx=Math.cos(phase)*.24;out.vy=0;out.vz=-Math.sin(phase)*.192;
+  out.heading=phase;out.activity=.55;out.stroke=time*a.beat*TAU+a.phase;return out;
 }
 
 export class BiomeWildlife {

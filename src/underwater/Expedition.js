@@ -9,6 +9,7 @@ import { ExpeditionChart } from './ExpeditionChart.js';
 import { explorationStops, regionName } from './BiomeLayout.js';
 import { clearRockRoute } from './AnimalMotion.js';
 import './expedition.css';
+import './journal-photos.css';
 
 const icons = {
   lab: '<path d="M3 5h14M3 10h14M3 15h14M7 3v4M13 8v4M8 13v4"/>',

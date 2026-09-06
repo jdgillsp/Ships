@@ -5,7 +5,14 @@ const CELL=8,TAU=Math.PI*2;
 const angleDelta=(a,b)=>Math.atan2(Math.sin(b-a),Math.cos(b-a));
 const mix=(a,b,t)=>a+(b-a)*t;
 const cellKey=(x,y,z)=>(x&1023)*1048576+(y&1023)*1024+(z&1023);
-const poseKeys=['x','y','z','vx','vy','vz','pitch','roll','stroke','effort','alarm','feeding','turn','speed'];
+// This fixed numeric state is copied thousands of times per frame. Explicit
+// fields avoid generic property enumeration in the inner simulation loop.
+function copyState(out,s){
+  out.x=s.x;out.y=s.y;out.z=s.z;out.vx=s.vx;out.vy=s.vy;out.vz=s.vz;
+  out.heading=s.heading;out.pitch=s.pitch;out.roll=s.roll;out.stroke=s.stroke;
+  out.effort=s.effort;out.alarm=s.alarm;out.feeding=s.feeding;out.turn=s.turn;
+  out.waterX=s.waterX;out.waterY=s.waterY;out.waterZ=s.waterZ;out.speed=s.speed;
+}
 function alignToFloor(s,floor){
   const e=.35,sx=(floor(s.x+e,s.z)-floor(s.x-e,s.z))/(2*e),sz=(floor(s.x,s.z+e)-floor(s.x,s.z-e))/(2*e);
   s.pitch=clamp(Math.atan(sx*Math.cos(s.heading)-sz*Math.sin(s.heading)),-.6,.6);
@@ -122,7 +129,11 @@ export class AnimalMotion {
     const alpha=clamp(time/MOTION_STEP-this.tick,0,1);
     for(let i=0;i<this.states.length;i++){
       const s=this.states[i],p=this.previous[i],out=this.poses[i];
-      for(const key of poseKeys)out[key]=mix(p[key],s[key],alpha);
+      out.x=mix(p.x,s.x,alpha);out.y=mix(p.y,s.y,alpha);out.z=mix(p.z,s.z,alpha);
+      out.vx=mix(p.vx,s.vx,alpha);out.vy=mix(p.vy,s.vy,alpha);out.vz=mix(p.vz,s.vz,alpha);
+      out.pitch=mix(p.pitch,s.pitch,alpha);out.roll=mix(p.roll,s.roll,alpha);out.stroke=mix(p.stroke,s.stroke,alpha);
+      out.effort=mix(p.effort,s.effort,alpha);out.alarm=mix(p.alarm,s.alarm,alpha);out.feeding=mix(p.feeding,s.feeding,alpha);
+      out.turn=mix(p.turn,s.turn,alpha);out.speed=mix(p.speed,s.speed,alpha);
       out.heading=p.heading+angleDelta(p.heading,s.heading)*alpha;
     }
     this.lastTime=time;return this.poses;
@@ -175,7 +186,7 @@ export class AnimalMotion {
           const chase=.9*baseSpeed/Math.max(.4,Math.sqrt(preyD));
           dx+=(prey.x+prey.vx*.4-s.x)*chase;dy+=(prey.y-s.y)*chase*.65;dz+=(prey.z+prey.vz*.4-s.z)*chase;
         }
-        Object.assign(social,{dx,dy,dz,alarm,valid:true});
+        social.dx=dx;social.dy=dy;social.dz=dz;social.alarm=alarm;social.valid=true;
       }else{
         dx=social.dx;dy=social.dy;dz=social.dz;alarm=social.alarm;
       }
@@ -207,8 +218,9 @@ export class AnimalMotion {
       if(length>maxSpeed){const k=maxSpeed/length;dx*=k;dy*=k;dz*=k;}
       const dvx=dx-s.vx,dvy=dy-s.vy,dvz=dz-s.vz,dv=Math.hypot(dvx,dvy,dvz);
       const acceleration=(a.benthic?.35:1.6)*baseSpeed*(1+alarm*2),blend=dv>0?Math.min(1,acceleration*dt/dv):1;
-      Object.assign(next,{vx:s.vx+dvx*blend,vy:s.vy+dvy*blend,vz:s.vz+dvz*blend,
-        alarm:Math.max(alarm,s.alarm*Math.exp(-dt*1.3)),feeding:(target.feeding||0)*clamp(1-Math.hypot(target.x-s.x,target.y-s.y,target.z-s.z)/1.5,0,1)});
+      next.vx=s.vx+dvx*blend;next.vy=s.vy+dvy*blend;next.vz=s.vz+dvz*blend;
+      next.alarm=Math.max(alarm,s.alarm*Math.exp(-dt*1.3));
+      next.feeding=(target.feeding||0)*clamp(1-Math.hypot(target.x-s.x,target.y-s.y,target.z-s.z)/1.5,0,1);
       if(a.behavior!=='hover'){
         const horizontal=Math.hypot(next.vx,next.vz),reverse=(a.reverse?Math.PI:0)+(a.sideways?Math.PI/2:0);
         const desired=-Math.atan2(next.vz,next.vx)+reverse,limit=(a.turnRate??1.4)*dt;
@@ -218,7 +230,8 @@ export class AnimalMotion {
     }
     for(let i=0;i<animals.length;i++){
       const a=animals[i],s=states[i],next=this.next[i],target=this.targets[i],previous=this.previous[i];
-      Object.assign(previous,s);if(a.behavior==='settled')continue;Object.assign(s,next);
+      copyState(previous,s);if(a.behavior==='settled')continue;
+      s.vx=next.vx;s.vy=next.vy;s.vz=next.vz;s.alarm=next.alarm;s.feeding=next.feeding;
       if(a.behavior!=='settled'){
         s.x+=(s.vx+s.waterX)*dt;s.z+=(s.vz+s.waterZ)*dt;if(!a.benthic)s.y+=(s.vy+s.waterY)*dt;
         this.rocks.project(s,a.radius??a.scale*.5,a.benthic);

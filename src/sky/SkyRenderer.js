@@ -4,8 +4,10 @@ import { FullScreenPass, makeRT } from '../gfx/FullScreenPass.js';
 import { ATMO_COMMON } from './AtmosphereGLSL.js';
 import { SHADING_GLSL } from '../gfx/ShadingGLSL.js';
 import { NOISE_GLSL } from '../gfx/NoiseGLSL.js';
+import { NIGHT_LIGHTING_GLSL } from './NightLightingGLSL.js';
 
 const SKY_CORE = /* glsl */ `
+${NIGHT_LIGHTING_GLSL}
 uniform sampler2D uSkyViewLUT;
 uniform sampler2D uTransmittanceLUT;
 uniform vec3 uSunDir;
@@ -72,14 +74,18 @@ vec3 renderSky(vec3 dir, vec3 camPos) {
     lum += sunDisc(dir, uSunDir, tr) * 0.00025;
   }
 
+  // Atmospheric LUTs and the solar disc are per unit solar irradiance.
+  // Night emission has its own shared scale, also used by cloud fill and haze.
+  // Tying it to the sun left the background and clouds in different units.
+  lum *= uSunIntensity;
+
   // night sky
-  float night = clamp(1.0 - (uSunDir.y + 0.12) * 6.0, 0.0, 1.0);
+  float night = nightRadianceScale(uSunDir.y);
   lum += starField(dir, uStarIntensity * night) * 0.07;
   float moonAngle=acos(clamp(dot(dir,uMoonDir),-1.0,1.0));
   float moon=1.0-smoothstep(.0045,.0054,moonAngle);
-  float halo=exp(-moonAngle*moonAngle/0.012);
   lum+=vec3(.23,.27,.32)*moon*night;
-  lum+=vec3(.003,.007,.018)*night*(.4+max(dir.y,0.0)*.6+halo*1.2);
+  lum+=nightSkyGlow(dir, uMoonDir)*night;
 
   return lum;
 }
@@ -123,11 +129,8 @@ void main(){
   vec4 p1 = uInvViewProj * vec4(ndc,  1.0, 1.0); p1 /= p1.w;
   vec3 dir = normalize(p1.xyz - p0.xyz);
 
-  // The LUTs store radiance per unit solar irradiance, so the sun's strength is
-  // applied here. The cloud layer already carries it — folding it in before the
-  // composite instead of after is the difference between a lit deck and one
-  // that is a hundred times too bright.
-  vec3 sky = renderSky(dir, uCamPos) * uSunIntensity;
+  // Both layers carry radiance before compositing.
+  vec3 sky = renderSky(dir, uCamPos);
 
   if (uCloudEnabled > 0.5) {
     vec4 cl = texture(uCloudTex, vUv);
@@ -175,7 +178,7 @@ void main(){
   float below = smoothstep(0.0, -0.22, dir.y);
   vec3 lookDir = mix(dir, vec3(dir.x, abs(dir.y) * 0.35 + 0.02, dir.z), below);
 
-  vec3 sky = renderSky(normalize(lookDir), uCamPos) * uSunIntensity;
+  vec3 sky = renderSky(normalize(lookDir), uCamPos);
   if (uCloudEnabled > 0.5) {
     vec4 cl = texture(uCloudEnvTex, vUv);
     sky = sky * cl.a + cl.rgb;

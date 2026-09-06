@@ -204,7 +204,7 @@ function faunaPosition(animal,time,recipe,out={}) {
     y=Math.max(y,floor+Math.max(.32,animal.scale*1.2));
     y=Math.min(animal.type==='dolphin'||animal.type==='seal'?-.35:-2.5,y);
   }
-  Object.assign(out,{x,y,z,feeding,activity,stroke});
+  out.x=x;out.y=y;out.z=z;out.feeding=feeding;out.activity=activity;out.stroke=stroke;
   return out;
 }
 
@@ -213,7 +213,8 @@ export function faunaPose(animal,time,recipe,out={}) {
   faunaPosition(animal,time,recipe,out);faunaPosition(animal,time+.04,recipe,nextPose);
   const vx=(nextPose.x-out.x)/.04,vy=(nextPose.y-out.y)/.04,vz=(nextPose.z-out.z)/.04,horizontal=Math.hypot(vx,vz);
   const heading=horizontal>.0001?-Math.atan2(vz,vx)+(animal.reverse?Math.PI:0)+(animal.sideways?Math.PI/2:0):animal.heading;
-  Object.assign(out,{vx,vy,vz,heading,pitch:Math.atan2(vy,Math.max(.025,horizontal))*.6-out.feeding*.55,roll:0});
+  out.vx=vx;out.vy=vy;out.vz=vz;out.heading=heading;
+  out.pitch=Math.atan2(vy,Math.max(.025,horizontal))*.6-out.feeding*.55;out.roll=0;
   return out;
 }
 
