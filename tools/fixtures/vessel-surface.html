@@ -1,0 +1,69 @@
+<!doctype html><html><head><link rel="icon" href="data:,"></head><body style="margin:0"><script type="module">
+import * as THREE from 'three';
+import { cutter, box, batchStatic } from '../../src/game/VesselModels.js';
+import { VesselShadow } from '../../src/game/VesselShadow.js';
+import { U, updateFrameUniforms } from '../../src/core/SharedUniforms.js';
+import { material } from '../../src/game/VesselMaterial.js';
+const renderer=new THREE.WebGLRenderer({preserveDrawingBuffer:true});renderer.setSize(960,720);document.body.append(renderer.domElement);
+const scene=new THREE.Scene(),ship=cutter();ship.position.y=5;scene.add(ship);
+const camera=new THREE.PerspectiveCamera(65,960/720,.1,200);camera.position.set(0,8.6,5.1);camera.lookAt(0,8.1,7);camera.updateMatrixWorld();
+const target=new THREE.WebGLRenderTarget(960,720,{count:2,type:THREE.FloatType});
+const env=new THREE.DataTexture(new Uint8Array([100,130,150,255]),1,1);env.needsUpdate=true;U.uEnvMap.value=env;U.uEnvMaxLod.value=0;
+U.uSunDir.value.set(.35,.65,-.4).normalize();U.uSunIntensity.value=3;U.uAmbientColor.value.set(.2,.2,.2);U.uStormFactor.value=0;
+const shadow=new VesselShadow(renderer,ship), originals=new Map();ship.traverse(o=>{if(o.isMesh)originals.set(o,o.material);});
+const screen=new THREE.Scene(),screenCamera=new THREE.Camera();screen.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.ShaderMaterial({uniforms:{map:{value:target.texture}},vertexShader:'varying vec2 uvv;void main(){uvv=uv;gl_Position=vec4(position,1.);}',fragmentShader:'uniform sampler2D map;varying vec2 uvv;void main(){vec3 c=texture2D(map,uvv).rgb;gl_FragColor=vec4(pow(c/(1.+c),vec3(1./2.2)),1.);}'})));
+window.surface=(mode='original')=>{
+ for(const [o,m] of originals){o.material=m;if(mode!=='original'){o.material=m.clone();Object.assign(o.material.uniforms,U);if(mode==='no-bump')o.material.fragmentShader=o.material.fragmentShader.replace('float relief=noise3','float relief=0.*noise3');if(mode==='no-shadow')o.material.fragmentShader=o.material.fragmentShader.replace('shipShade(world,nl)','1.');if(mode==='normals')o.material.fragmentShader=o.material.fragmentShader.replace('outColor=vec4(c,','outColor=vec4(normalize(norm)*.5+.5,');}}
+ updateFrameUniforms(camera,camera.projectionMatrix,1/60,0,0);shadow.update(ship);renderer.setRenderTarget(target);renderer.setClearColor(0x172a34,1);renderer.clear();renderer.render(scene,camera);
+ renderer.setRenderTarget(null);renderer.render(screen,screenCamera);
+};
+window.shadowCoverage=()=>{
+ const position=ship.position.clone(),rotation=ship.rotation.clone(),bounds=new THREE.Box3();let radius=0;
+ for(const y of [-3,3])for(const pitch of [-.25,.25])for(const roll of [-.3,.3]){
+  ship.position.set(0,y,0);ship.rotation.set(pitch,0,roll);bounds.setFromObject(ship);
+  for(const x of [bounds.min.x,bounds.max.x])for(const z of [bounds.min.z,bounds.max.z])for(const height of [bounds.min.y,bounds.max.y])radius=Math.max(radius,Math.hypot(x,height-1,z));
+ }
+ ship.position.copy(position);ship.rotation.copy(rotation);ship.updateMatrixWorld(true);return{radius,coverage:shadow.camera.right};
+};
+window.surfaceCost=async()=>{
+ const gl=renderer.getContext(),ext=gl.getExtension('EXT_disjoint_timer_query_webgl2');if(!ext)return{available:false};
+ const legacy=`float shipShade(vec3 p,float nl){vec3 q=(uVesselShadowMatrix*vec4(p,1.)).xyz;if(any(lessThan(q,vec3(0.)))||any(greaterThan(q,vec3(1.))))return 1.;float sum=0.,bias=.00045+.001*(1.-nl);for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++)sum+=step(q.z-bias,textureLod(uVesselShadow,q.xy+vec2(float(x),float(y))/1024.,0.).r);return sum/9.;}`;
+ const variants=new Map();for(const [,m] of originals)if(!variants.has(m)){const old=m.clone();Object.assign(old.uniforms,U);const start=m.fragmentShader.indexOf('float shipShade('),end=m.fragmentShader.indexOf('vec3 workLight(');old.fragmentShader=m.fragmentShader.slice(0,start)+legacy+m.fragmentShader.slice(end);variants.set(m,old);}
+ const samples={before:[],after:[]};
+ for(let round=0;round<16;round++)for(const label of (round%2?['after','before']:['before','after'])){
+  for(const [o,m] of originals)o.material=label==='before'?variants.get(m):m;
+  const extent=label==='before'?38:16;Object.assign(shadow.camera,{left:-extent,right:extent,top:extent,bottom:-extent});shadow.camera.updateProjectionMatrix();
+  const query=gl.createQuery();gl.beginQuery(ext.TIME_ELAPSED_EXT,query);shadow.update(ship);renderer.setRenderTarget(target);renderer.clear();renderer.render(scene,camera);gl.endQuery(ext.TIME_ELAPSED_EXT);
+  while(!gl.getQueryParameter(query,gl.QUERY_RESULT_AVAILABLE))await new Promise(requestAnimationFrame);
+  if(gl.getParameter(ext.GPU_DISJOINT_EXT))throw new Error('GPU timing was disjoint');
+  const ms=gl.getQueryParameter(query,gl.QUERY_RESULT)/1e6;gl.deleteQuery(query);if(round>=4)samples[label].push(ms);
+ }
+ for(const m of variants.values())m.dispose();for(const [o,m] of originals)o.material=m;
+ Object.assign(shadow.camera,{left:-16,right:16,top:16,bottom:-16});shadow.camera.updateProjectionMatrix();
+ const result={available:true};for(const [label,values] of Object.entries(samples)){values.sort((a,b)=>a-b);result[label]={median:values[Math.floor(values.length/2)],p95:values[Math.floor(values.length*.95)],samples:values.length};}return result;
+};
+window.shadowProbe=(height=.65,occluder=false,vertical=false,continuity=false)=>{
+ const probe=new THREE.Scene(),plane=new THREE.Mesh(new THREE.PlaneGeometry(8,8),material('#ffffff').clone());plane.rotation.x=-Math.PI/2;plane.position.y=3;probe.add(plane);
+ if(vertical){plane.rotation.x=0;plane.geometry.dispose();const panel=new THREE.Group();box(panel,4,3,.2,'#ffffff');batchStatic(panel);plane.geometry=panel.children[0].geometry;}
+ Object.assign(plane.material.uniforms,U);
+ plane.material.fragmentShader=plane.material.fragmentShader.replace('outColor=vec4(c,','outColor=vec4(vec3(shipShade(world,nl)),');
+ if(window.nearestFilter)plane.material.fragmentShader=plane.material.fragmentShader.replace('x==-1?1.-fraction.x:x==2?fraction.x:1.','x==2?0.:1.').replace('y==-1?1.-fraction.y:y==2?fraction.y:1.','y==2?0.:1.');
+ const block=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),plane.material);block.position.set(0,4,0);block.visible=occluder;probe.add(block);
+ U.uSunDir.value.set(.35,height,-.4).normalize();const map=new VesselShadow(renderer,probe);map.update(plane);
+ camera.position.set(0,vertical?3:12,-7);camera.lookAt(0,3,0);camera.updateMatrixWorld();updateFrameUniforms(camera,camera.projectionMatrix,1/60,0,0);
+ renderer.setRenderTarget(target);renderer.setClearColor(0,0);renderer.clear();renderer.render(probe,camera);const pixels=new Float32Array(960*720*4);renderer.readRenderTargetPixels(target,0,0,960,720,pixels);
+ let visible=0,lit=0,dark=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i+3]>0){visible++;if(pixels[i]>.99)lit++;if(pixels[i]<.5)dark++;}
+ let maxJump=0;
+ if(continuity){
+  // Translate receiver and view together under a fixed depth map. Sampling
+  // a continuous shadow edge must not jump between whole filter levels.
+  block.visible=false;let previous;
+  for(let step=0;step<16;step++){
+   plane.position.x=step*.001;camera.position.x=plane.position.x;camera.lookAt(plane.position.x,3,0);camera.updateMatrixWorld();updateFrameUniforms(camera,camera.projectionMatrix,1/60,step/60,step);
+   renderer.clear();renderer.render(probe,camera);const frame=new Float32Array(pixels.length);renderer.readRenderTargetPixels(target,0,0,960,720,frame);
+   if(previous)for(let i=0;i<frame.length;i+=4)if(frame[i+3]>0&&previous[i+3]>0)maxJump=Math.max(maxJump,Math.abs(frame[i]-previous[i]));previous=frame;
+  }
+ }
+ map.target.dispose();plane.geometry.dispose();plane.material.dispose();block.geometry.dispose();return{visible,lit,dark,litFraction:lit/visible,maxJump};
+};window.ready=true;
+</script></body></html>

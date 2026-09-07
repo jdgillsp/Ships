@@ -1,0 +1,23 @@
+<!doctype html><html><head><link rel="icon" href="data:,"></head><body><script type="module">
+import * as THREE from 'three';
+import { material, trackMotion } from '../../src/game/VesselMaterial.js';
+import { U, updateFrameUniforms } from '../../src/core/SharedUniforms.js';
+const renderer = new THREE.WebGLRenderer(); renderer.setSize(128, 128); document.body.append(renderer.domElement);
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, 1, .1, 100);
+const env = new THREE.DataTexture(new Uint8Array([0,0,0,255]), 1, 1), shadow = new THREE.DataTexture(new Uint8Array([255,255,255,255]), 1, 1); env.needsUpdate = shadow.needsUpdate = true;
+U.uEnvMap.value = env; U.uEnvMaxLod.value = 0; U.uVesselShadow.value = shadow; U.uAmbientColor.value.set(0,0,0); U.uSunIntensity.value = 0; U.uLamp.value = 0;
+const deck = trackMotion(new THREE.Mesh(new THREE.PlaneGeometry(8, 10), material('#ffffff', 0, 'wood'))); deck.rotation.x = -Math.PI / 2; deck.position.set(0, 2, -3); scene.add(deck);
+camera.position.set(0, 8, -12); camera.lookAt(0, 2, -3); camera.updateMatrixWorld();
+const target = new THREE.WebGLRenderTarget(128,128,{ count: 2, type: THREE.FloatType });
+window.runWorkLights = (level = 1, below = false, reversed = false) => {
+  U.uVesselLightLevel.value = level; U.uVesselWorkLight0.value.set(-1.55,4.35,-.2); U.uVesselWorkLight1.value.set(1.55,4.35,-.2);
+  U.uVesselWorkDirection.value.set(0,-.78,-.63).normalize().multiplyScalar(reversed ? -1 : 1); U.uVesselDeckPlane.value.set(0,1,0,-1.72);
+  deck.position.y = below ? 1.5 : 2;
+  updateFrameUniforms(camera, camera.projectionMatrix, 1/60, 1, 1);
+  renderer.setRenderTarget(target); renderer.setClearColor(0,0); renderer.clear(); renderer.render(scene,camera);
+  const pixels = new Float32Array(128*128*4); renderer.readRenderTargetPixels(target,0,0,128,128,pixels);
+  let red=0, green=0, blue=0, lit=0;
+  for(let i=0;i<pixels.length;i+=4){red+=pixels[i];green+=pixels[i+1];blue+=pixels[i+2];if(pixels[i]>.01)lit++;}
+  return {red,green,blue,lit,calls:renderer.info.render.calls};
+}; window.ready=true;
+</script></body></html>

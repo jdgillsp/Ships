@@ -1,0 +1,6 @@
+.journal-photo{margin:0 0 17px;overflow:hidden;border-radius:5px;background:#091f25;border:1px solid #a6c5b733}
+.journal-photo img{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover}
+.journal-photo figcaption{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:9px 12px;color:#9ebbae;font:9px system-ui;letter-spacing:1.4px}
+.journal-photo figcaption a{font:11px system-ui;letter-spacing:0;color:#e9cf9f;text-decoration:none}
+.journal-photo figcaption a:hover{text-decoration:underline}
+.journal-photo figcaption a:focus-visible{outline:2px solid #e7ba73;outline-offset:3px}

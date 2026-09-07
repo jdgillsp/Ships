@@ -1,0 +1,66 @@
+import puppeteer from 'puppeteer';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { createGameServer } from '../server/index.mjs';
+import { useExpandedTools } from './browser-tools-view.mjs';
+
+const app = createGameServer(); app.server.listen(0, '127.0.0.1'); await new Promise(r => app.server.once('listening', r));
+const out = 'tools/shots/engine-sound'; await fs.mkdir(out, { recursive: true });
+const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--use-angle=d3d11', '--ignore-gpu-blocklist'], defaultViewport: { width: 1280, height: 800 } });
+try {
+  const page = await browser.newPage(), errors = []; page.on('pageerror', e => errors.push(e.message));
+  await useExpandedTools(page); await page.goto(`http://127.0.0.1:${app.server.address().port}/?mode=expedition&preset=low&adaptive=0`);
+  await page.waitForFunction(() => window.__app?.running && !document.getElementById('boot'), { timeout: 120000 });
+  await page.click('#start-expedition'); await page.waitForFunction(() => { const g = window.__app.game; return g.started && g.net.ready && g.lastMode === 'deck'; });
+  await page.keyboard.press('c'); await page.click('#sound');
+  await page.waitForFunction(() => window.__app.game.sound.context?.state === 'running' && Math.abs(window.__app.game.sound.mix?.enginePan) > .15);
+  await page.evaluate(() => { window.originalEnginePanner = window.__app.game.sound.enginePanner; });
+  const sample = () => page.evaluate(() => { const g = window.__app.game, s = g.sound; return { ...s.mix, panValue: s.enginePanner.pan.value, source: s.enginePosition.toArray(), camera: g.app.camera.position.toArray() }; });
+  const deck = await sample();
+  await page.mouse.move(100, 400); await page.mouse.down(); await page.mouse.move(885, 400, { steps: 8 }); await page.mouse.up();
+  await page.waitForFunction(pan => window.__app.game.sound.mix.enginePan * pan < 0, {}, deck.enginePan);
+  await page.waitForFunction(() => { const s = window.__app.game.sound; return Math.abs(s.enginePanner.pan.value - s.mix.enginePan) < .02; });
+  const turned = await sample(); assert.ok(deck.enginePan * turned.enginePan < 0);
+  await page.keyboard.press('h'); await page.waitForFunction(() => window.__app.game.lastMode === 'helm');
+  await page.keyboard.press('b'); await page.waitForFunction(() => !window.__app.game.state.ship.anchor); await page.keyboard.down('w');
+  await page.waitForFunction(() => window.__app.game.frameWorld.ship.speed > 2);
+  const ahead = await sample(); assert.ok(ahead.engineHz > deck.engineHz && ahead.cutoff > deck.cutoff);
+  const attachedError = await page.evaluate(() => { const g = window.__app.game; return g.models.ship.localToWorld(g.sound.enginePosition.clone().set(0, .3, -3.6)).distanceTo(g.sound.enginePosition); });
+  assert.ok(attachedError < 1e-9, 'The sound source follows the rendered pitching and rolling ship');
+  await page.keyboard.up('w'); await page.keyboard.press('b'); await page.waitForFunction(() => Math.abs(window.__app.game.frameWorld.ship.speed) < .05);
+  await page.keyboard.press('v'); await page.waitForFunction(() => window.__app.game.lastMode === 'diver');
+  const room = await page.evaluate(() => window.__app.game.net.room), id = await page.evaluate(() => window.__app.game.net.id), world = app.rooms.get(room).world;
+  Object.assign(world.players[id], { x: world.ship.x + 8, y: -6, z: world.ship.z + 3.6 });
+  await page.waitForFunction(() => window.__app.game.app.camera.position.y < -5.9);
+  await page.keyboard.press('Home'); await page.waitForFunction(() => Math.abs(window.__app.game.sound.mix.enginePan) > .5);
+  const dive = await sample(); assert.equal(dive.cutoff, 160); assert.ok(dive.engine < deck.engine);
+  await page.mouse.move(100, 400); await page.mouse.down(); await page.mouse.move(885, 400, { steps: 8 }); await page.mouse.up();
+  await page.waitForFunction(pan => window.__app.game.sound.mix.enginePan * pan < -.25, {}, dive.enginePan);
+  const diverTurned = await sample(); assert.equal(diverTurned.cutoff, 160);
+  Object.assign(world.players[id], { x: world.ship.x + 110, y: -6, z: world.ship.z + 3.6 });
+  await page.waitForFunction(() => { const g = window.__app.game; return Math.abs(g.app.camera.position.x - g.frameWorld.ship.x) > 109; });
+  const distant = await sample(); assert.ok(distant.engine < dive.engine * .1);
+  await page.click('#sound'); await page.waitForFunction(() => !window.__app.game.sound.enabled && window.__app.game.sound.ambient.master.gain.value < .00001);
+  const audio = await page.evaluate(async () => {
+    const prototype = Object.getPrototypeOf(window.__app.game.sound);
+    const render = async (pan, volume = 1, strength = .08, cutoff = 700) => {
+      const context = new OfflineAudioContext(2, 24000, 48000), master = context.createGain(); master.gain.value = volume; master.connect(context.destination);
+      const noise = context.createBufferSource(); noise.buffer = context.createBuffer(1, 24000, 48000);
+      const sound = { ambient: { context, master, noise } }; prototype.create.call(sound);
+      sound.engineGain.gain.value = strength; sound.enginePanner.pan.value = pan; sound.engineFilter.frequency.value = cutoff;
+      const buffer = await context.startRendering();
+      const rms = [0, 1].map(channel => Math.sqrt(buffer.getChannelData(channel).reduce((sum, x) => sum + x * x, 0) / buffer.length));
+      return rms;
+    };
+    return { left: await render(-.75), right: await render(.75), center: await render(0), half: await render(0, .5), distant: await render(0, 1, .008), muted: await render(.75, 0), underwater: await render(0, 1, .04, 160) };
+  });
+  assert.ok(audio.left[0] > audio.left[1] * 4 && audio.right[1] > audio.right[0] * 4);
+  assert.ok(audio.center[0] > .001 && Math.abs(audio.center[0] - audio.center[1]) < 1e-8);
+  assert.ok(Math.abs(audio.half[0] / audio.center[0] - .5) < 1e-6);
+  assert.ok(Math.abs(audio.distant[0] / audio.center[0] - .1) < 1e-6);
+  assert.deepEqual(audio.muted, [0, 0]); assert.ok(audio.underwater[0] < audio.center[0] * .6);
+  await page.click('#sound'); await page.waitForFunction(() => window.__app.game.sound.enabled && window.__app.game.sound.ambient.master.gain.value > .001);
+  assert.ok(await page.evaluate(() => window.__app.game.sound.enginePanner === window.originalEnginePanner), 'Unmuting reuses the existing engine graph');
+  assert.deepEqual(errors, []); const result = { recordedAt: new Date().toISOString(), deck, turned, ahead, dive, diverTurned, distant, attachedError, audio, liveMute: true, unmuteReusesGraph: true, errors };
+  await fs.writeFile(`${out}/result.json`, JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
+} finally { await browser.close(); await app.stop(); }

@@ -1,0 +1,102 @@
+import { useExpandedTools } from './browser-tools-view.mjs';
+import puppeteer from 'puppeteer';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { createGameServer } from '../server/index.mjs';
+const { server } = createGameServer(); server.listen(0, '127.0.0.1'); await new Promise(r => server.once('listening', r));
+const base = process.env.GAME_URL || `http://127.0.0.1:${server.address().port}/`, out = 'tools/shots/crew-settings'; await fs.mkdir(out, { recursive: true });
+const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'], defaultViewport: { width: 1440, height: 900 } });
+const errors = [], sleep = ms => new Promise(r => setTimeout(r, ms));
+async function open(room, name) {
+  const context = await browser.createBrowserContext(), p = await context.newPage();
+  p.on('pageerror', e => errors.push(e.message)); p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  await useExpandedTools(p); await p.goto(`${base}?mode=expedition&preset=low&adaptive=0${room ? `&room=${room}` : ''}`);
+  await p.waitForFunction(() => window.__app?.running && !document.getElementById('boot'), { timeout: 120000 });
+  await p.$eval('#crew-name', (e, name) => { e.value = name; }, name); await p.click('#start-expedition'); await p.waitForFunction(() => window.__app.game.net.ready); return p;
+}
+try {
+  const a = await open(null, 'Rowan'), room = await a.evaluate(() => window.__app.game.net.room);
+  const b = await open(room, 'Mira'), id = await b.evaluate(() => window.__app.game.net.id);
+  await a.keyboard.press('h');
+  await a.waitForFunction(() => { const g = window.__app.game; return g.state.ship.pilot === g.net.id && g.lastMode === 'helm'; });
+  await b.waitForFunction(() => document.getElementById('pilot-hint').textContent.includes('G to mark'));
+  await b.keyboard.press('h'); await sleep(250);
+  assert.equal(await b.evaluate(() => { const g = window.__app.game; return g.state.players[g.net.id].mode; }), 'deck', 'helm shortcut respects the captain already at the station');
+  await a.keyboard.press('h');
+  await b.waitForFunction(() => !window.__app.game.state.ship.pilot);
+  await b.keyboard.press('h');
+  await b.waitForFunction(() => { const g = window.__app.game; return g.state.ship.pilot === g.net.id && g.lastMode === 'helm'; });
+  await b.keyboard.press('h');
+  await b.waitForFunction(() => { const g = window.__app.game; return g.state.players[g.net.id].mode === 'deck' && g.lastMode === 'deck'; });
+  await a.waitForFunction(() => { const m = window.__app.game.models; return !m.crew[1].visible && !m.waterCrew[1].visible; });
+  const layout = [];
+  for (const width of [1440, 600, 390]) {
+    await a.setViewport({ width, height: 900 }); await sleep(250);
+    const bounds = await a.evaluate(() => {
+      const root = document.querySelector('.ship-console'), box = root.getBoundingClientRect();
+      const overflow = [...root.querySelectorAll('button')].filter(e => e.getClientRects().length).filter(e => { const r = e.getBoundingClientRect(); return r.left < box.left || r.right > box.right || r.bottom > box.bottom; }).map(e => e.textContent);
+      return { width: innerWidth, height: box.height, left: box.left, right: box.right, overflow };
+    });
+    assert.deepEqual(bounds.overflow, [], `Controls fit the ${width}px console`);
+    assert.ok(bounds.left >= 0 && bounds.right <= width);
+    if (width === 1440) assert.ok(bounds.height < 245, `Desktop controls should leave room to see the sea: ${bounds.height}px`);
+    layout.push(bounds); await a.screenshot({ path: `${out}/00-console-${width}.png` });
+  }
+  await a.setViewport({ width: 1440, height: 900 });
+  console.log('Helm shortcut hands off safely without a helmet obstructing the camera; compact console fits desktop and 390px screens', JSON.stringify(layout));
+  const chartPoint = await b.evaluate(() => {
+    const g = window.__app.game, view = g.chartView, buoy = g.models.buoy.position, rect = document.getElementById('sea-chart').getBoundingClientRect();
+    return { x: rect.x + (140 - (buoy.x - view.center.x) * 112 / view.extent) / 280 * rect.width, y: rect.y + (125 - (buoy.z - view.center.z) * 112 / view.extent) / 250 * rect.height };
+  });
+  await b.mouse.click(chartPoint.x, chartPoint.y);
+  await a.waitForFunction(id => window.__app.game.state.signals?.[id]?.label === 'Survey buoy', {}, id);
+  await a.waitForSelector('.crew-signal:not([hidden])');
+  await a.waitForFunction(() => document.getElementById('crew-signal-note').textContent.includes('Mira marked survey buoy'));
+  assert.match(await a.$eval('#crew-signal-note', e => e.textContent), /Mira marked survey buoy/);
+  const first = await a.evaluate(id => window.__app.game.state.signals[id], id);
+  assert.deepEqual(await b.evaluate(id => window.__app.game.state.signals[id], id), first);
+  await a.screenshot({ path: `${out}/01-shared-mark.png` }); console.log('Chart mark shared between independent crew clients');
+  await b.keyboard.down('w'); await sleep(3200); await b.keyboard.up('w'); await b.keyboard.down('d'); await sleep(650); await b.keyboard.up('d'); await b.keyboard.down('w'); await sleep(500); await b.keyboard.up('w');
+  await b.keyboard.press('l'); await sleep(300);
+  await b.evaluate(() => {
+    const a = window.__app, g = a.game, buoy = g.models.buoy.position;
+    g.orbit = Math.atan2(buoy.x - a.camera.position.x, buoy.z - a.camera.position.z) - g.state.ship.heading;
+    g.deckPitch = Math.atan2(buoy.y + .7 - a.camera.position.y, Math.hypot(buoy.x - a.camera.position.x, buoy.z - a.camera.position.z));
+  });
+  await sleep(400); await b.keyboard.press('g');
+  await a.waitForFunction(({ id, previous }) => window.__app.game.state.signals?.[id]?.id > previous, {}, { id, previous: first.id });
+  const aimed = await a.evaluate(id => window.__app.game.state.signals[id], id);
+  assert.equal(aimed.label, 'Survey buoy');
+  await b.screenshot({ path: `${out}/02-optics-mark.png` }); console.log('Lookout aiming creates an authoritative shared buoy mark');
+  await a.click('#game-settings'); await a.waitForSelector('#settings-dialog[open]');
+  await a.select('#graphics-quality', 'medium');
+  await a.$eval('#camera-sensitivity', e => { e.value = '1.5'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+  await a.click('#invert-look');
+  await a.$eval('#game-volume', e => { e.value = '.3'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+  assert.equal(await a.evaluate(() => window.__app.quality.presetName), 'medium');
+  assert.equal(await a.evaluate(() => window.__app.game.sound.ambient.volume), .3);
+  const before = await a.evaluate(() => { const g = window.__app.game, p = g.state.players[g.net.id]; return { x: p.deckX, z: p.deckZ }; });
+  await a.keyboard.down('w'); await sleep(500); await a.keyboard.up('w');
+  assert.deepEqual(await a.evaluate(() => { const g = window.__app.game, p = g.state.players[g.net.id]; return { x: p.deckX, z: p.deckZ }; }), before, 'settings input does not move the player');
+  await a.screenshot({ path: `${out}/03-settings.png` }); await a.click('#close-settings');
+  const pitch = await a.evaluate(() => window.__app.game.deckPitch);
+  await a.mouse.move(780, 450); await a.mouse.down(); await a.mouse.move(800, 470, { steps: 5 }); await a.mouse.up();
+  assert.ok(await a.evaluate(pitch => window.__app.game.deckPitch > pitch + .08, pitch), 'inverted sensitivity applies to actual camera input');
+  const identity = await a.evaluate(() => window.__app.game.net.id);
+  await a.reload(); await a.waitForFunction(() => window.__app?.running && !document.getElementById('boot'), { timeout: 120000 });
+  await a.click('#start-expedition'); await a.waitForFunction(() => window.__app.game.net.ready);
+  assert.equal(await a.evaluate(() => window.__app.game.net.id), identity);
+  assert.deepEqual(await a.evaluate(() => window.__app.game.settings.values), { graphics: 'medium', sensitivity: 1.5, invertY: true, volume: .3, interface: 'full' });
+  await a.setViewport({ width: 600, height: 800 }); await a.click('#game-settings'); await sleep(300); await a.screenshot({ path: `${out}/04-settings-narrow.png` });
+  assert.ok(await a.$eval('#settings-dialog', e => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; }));
+  await b.keyboard.press('Escape'); await b.keyboard.press('v');
+  await b.waitForFunction(() => { const g = window.__app.game; return g.state.players[g.net.id].mode === 'diver' && g.lastMode === 'diver'; });
+  await b.keyboard.down('ControlLeft'); await sleep(1500); await b.keyboard.up('ControlLeft');
+  await b.evaluate(() => { window.__app.game.pitch = -.9; }); await sleep(300); await b.keyboard.press('g');
+  await a.waitForFunction(id => window.__app.game.state.signals?.[id]?.y < -3, {}, id);
+  await b.screenshot({ path: `${out}/05-underwater-mark.png` });
+  await a.waitForFunction(id => !window.__app.game.state.signals?.[id], { timeout: 25000 }, id);
+  await b.waitForFunction(id => !window.__app.game.state.signals?.[id], { timeout: 25000 }, id);
+  assert.deepEqual(errors, []); await fs.writeFile(`${out}/result.json`, JSON.stringify({ passed: true, layout, checks: ['helm shortcut and ownership', 'deck lookout guidance', 'compact console at 1440/600/390px', 'shared chart mark', 'lookout ray mark', 'underwater ray mark', 'server expiry', 'graphics changes', 'inverted camera input', 'dialog movement isolation', 'preferences persist', 'identity restored', 'narrow layout'], errors }, null, 2));
+  console.log('PASS: shared crew marks, binocular targeting, settings and rejoin persistence');
+} finally { await browser.close(); server.closeAllConnections(); server.close(); }

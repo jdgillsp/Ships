@@ -42,6 +42,7 @@
     "server": "node server/index.mjs",
     "start": "node server/index.mjs",
     "test:ship:browser": "node tools/vessel-stability.mjs",
+    "test:ship-waterline:browser": "node tools/ship-waterline-browser.mjs",
     "test:bubbles:gpu": "node tools/bubble-material.mjs",
     "test:dive-splash:gpu": "node tools/dive-splash-gpu.mjs",
     "test:dive-splash:browser": "node tools/dive-splash-browser.mjs",
@@ -90,6 +91,8 @@
     "test:quality:visibility": "node tools/quality-visibility.mjs",
     "test:visibility:browser": "node tools/visibility-browser.mjs",
     "test:immersive:browser": "node tools/immersive-browser.mjs",
+    "test:idle-controls:browser": "node tools/idle-controls-browser.mjs",
+    "test:ux-guidance:browser": "node tools/ux-guidance-browser.mjs",
     "test:compact:browser": "node tools/compact-interface-browser.mjs",
     "test:work-lights:browser": "node tools/work-lights-browser.mjs",
     "test:work-lights:gpu": "node tools/work-lights-gpu.mjs",
@@ -129,7 +132,8 @@
     "preview": "vite preview --host",
     "test": "node --test tools/game.test.mjs tools/polish.test.mjs tools/persistence.test.mjs tools/quality-work.test.mjs tools/journal-photos.test.mjs tools/voyage-map.test.mjs tools/invite.test.mjs && node tools/quality-sim.mjs && node tools/underwater-sim.mjs && node tools/connected-ocean-sim.mjs && node tools/fauna-sim.mjs && node tools/animal-motion-sim.mjs && node tools/biome-sim.mjs",
     "smoke": "node tools/smoke.mjs",
-    "test:invite:browser": "node tools/crew-invite-browser.mjs"
+    "test:invite:browser": "node tools/crew-invite-browser.mjs",
+    "test:ui:browser": "node tools/ui-uplift-browser.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"

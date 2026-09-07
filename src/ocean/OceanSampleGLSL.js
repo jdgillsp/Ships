@@ -250,7 +250,7 @@ vec3 oceanDisplacementLod(vec2 p, vec3 lods, out float foamHint) {
     vec4 s = textureLod(uOceanDisp2, p / uOceanScales.z, lods.z);
     d += s.xyz * uCascadeGain.z;
   }
-  return d * mix(1.0,0.16,uNavigationSea.x);
+  return navigationDetail(d);
 }
 
 /** Full analytic modifier stack, shared by vertex + CPU-side probes. */
