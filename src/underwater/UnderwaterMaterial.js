@@ -29,13 +29,26 @@ uniform sampler2D uCausticSlope;
 uniform float uCausticSpan;
 
 float reefShadow(vec3 world,vec3 n) {
+  vec4 surface=uReefShadowMatrix*vec4(world,1.0);
+  vec3 receiver=surface.xyz/surface.w*0.5+0.5;
+  vec3 dx=dFdx(receiver),dy=dFdy(receiver);
+  float det=dx.x*dy.y-dx.y*dy.x;
+  vec2 slope=abs(det)>1e-12?vec2(dy.y*dx.z-dx.y*dy.z,dx.x*dy.z-dy.x*dx.z)/det:vec2(0.0);
   vec4 p=uReefShadowMatrix*vec4(world+n*(uUnderwaterShadowMode>.5?.004:.045),1.0);
   vec3 q=p.xyz/p.w*0.5+0.5;
-  if(q.x<0.0||q.x>1.0||q.y<0.0||q.y>1.0||q.z>1.0)return 1.0;
+  if(any(lessThan(q,vec3(0.0)))||any(greaterThan(q,vec3(1.0))))return 1.0;
+  vec2 size=vec2(textureSize(uReefShadow,0));
+  vec2 pixel=q.xy*size-.5,base=floor(pixel),fraction=fract(pixel);
   float light=0.0;
-  for(int x=-1;x<=1;x++)for(int y=-1;y<=1;y++) {
-    float d=textureLod(uReefShadow,q.xy+vec2(float(x),float(y))/1536.0,0.0).r;
-    light+=step(q.z-(uUnderwaterShadowMode>.5?.000025:.0013),d);
+  // Fractional comparison weights keep shadow edges continuous. Each texel
+  // compares against the receiving plane there, avoiding self-shadow bands.
+  for(int x=-1;x<=2;x++)for(int y=-1;y<=2;y++) {
+    vec2 uv=(base+vec2(float(x),float(y))+.5)/size;
+    float d=textureLod(uReefShadow,uv,0.0).r;
+    float z=q.z+clamp(dot(slope,uv-q.xy),-.01,.01);
+    float wx=x==-1?1.0-fraction.x:x==2?fraction.x:1.0;
+    float wy=y==-1?1.0-fraction.y:y==2?fraction.y:1.0;
+    light+=wx*wy*step(z-(uUnderwaterShadowMode>.5?.000025:.0013),d);
   }
   return light/9.0;
 }
@@ -420,9 +433,12 @@ void main() {
   vec3 lampDirection=normalize(uCamPos+right*.75+vec3(0,.18,0)-vWorld);
   vec3 fillDirection=normalize(uCamPos-right*.70+vec3(0,.12,0)-vWorld);
   float lampCone=pow(max(dot(-viewDir,uDiveForward),0.0),5.0);
-  float lamp=uLamp*lampCone*7.5/(1.0+dist*dist*.045);
+  // A softer near-field falloff preserves pale skin detail at arm's length.
+  // Light also loses color on its outward path before the return-path fog.
+  float lamp=uLamp*lampCone*7.5/(4.0+dist*dist*.045);
+  vec3 lampTransmission=exp(-uExtinction*dist/max(uClarity,.3));
   float lampShadow=uUnderwaterShadowMode>.5?reefShadow(vWorld,n):1.0;
-  irradiance+=vec3(.94,.96,1.0)*lamp*(max(.0,dot(n,lampDirection))*(.16+.84*lampShadow)+max(.0,dot(n,fillDirection))*.38);
+  irradiance+=vec3(.94,.96,1.0)*lampTransmission*lamp*(max(.0,dot(n,lampDirection))*(.16+.84*lampShadow)+max(.0,dot(n,fillDirection))*.38);
   irradiance += vec3(0.4,0.6,0.8)*uAmbientFlash*exp(-depth*0.028)*(1.0-uDiveDeep);
   vec3 col = base*irradiance;
   // A modest photographic white balance recovers near-field coral color;
@@ -430,9 +446,9 @@ void main() {
   col.r*=1.0+.12*(1.0-uDiveDeep)*(1.0-exp(-dist*.08));
   if (uKind > 3.5 && uKind < 4.5) {
     col+=sunEnergy*waterSpecular(n,viewDir,sun,roughness,f0)*shadow;
-    col+=vec3(.93,.96,1.0)*waterSpecular(n,viewDir,lampDirection,roughness,f0)*lamp*lampShadow;
+    col+=vec3(.93,.96,1.0)*lampTransmission*waterSpecular(n,viewDir,lampDirection,roughness,f0)*lamp*lampShadow;
     #ifdef FAUNA
-      if(vTissue>.5&&vTissue<1.5)col+=base*(sunEnergy*max(.0,dot(-n,sun))*.32+lamp*max(.0,dot(-n,viewDir))*.08);
+      if(vTissue>.5&&vTissue<1.5)col+=base*(sunEnergy*max(.0,dot(-n,sun))*.32+lampTransmission*lamp*max(.0,dot(-n,viewDir))*.08);
     #endif
   }
   float bio = uGlow*uBioStrength*(0.24+uDiveNight*(1.0-localDeep)*1.6+localDeep*1.4);

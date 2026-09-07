@@ -1,0 +1,52 @@
+<!doctype html><html><head><link rel="icon" href="data:,"></head><body style="margin:0;background:#101b23"><script type="module">
+import * as THREE from 'three';
+import { cutter } from '../../src/game/VesselModels.js';
+import { VesselShadow } from '../../src/game/VesselShadow.js';
+import { U, updateFrameUniforms } from '../../src/core/SharedUniforms.js';
+import { Vessels } from '../../src/game/Vessels.js';
+import { createWorld, addPlayer, act } from '../../src/game/Simulation.js';
+import { updateVesselLighting } from '../../src/game/VesselLighting.js';
+const renderer=new THREE.WebGLRenderer({antialias:false,preserveDrawingBuffer:true});renderer.setSize(640,480);document.body.append(renderer.domElement);
+const scene=new THREE.Scene(),ship=cutter();scene.add(ship);ship.position.y=5;
+const camera=new THREE.PerspectiveCamera(45,640/480,.1,200);
+const target=new THREE.WebGLRenderTarget(640,480,{count:2,type:THREE.FloatType});
+const env=new THREE.DataTexture(new Uint8Array([100,130,150,255]),1,1);env.needsUpdate=true;U.uEnvMap.value=env;U.uEnvMaxLod.value=0;
+U.uSunDir.value.set(.35,.65,-.4).normalize();U.uSunIntensity.value=3;U.uAmbientColor.value.set(.2,.2,.2);
+const shadow=new VesselShadow(renderer,ship);window.fixture={renderer,scene,ship,camera,target,shadow,U};
+window.runFrames=(force=false,follow=true,work=false)=>{
+ const originalStorm=U.uStormFactor.value;if(work)U.uStormFactor.value=1;
+ // The crew-occlusion fixture owns a different shadow target. Bind this
+ // fixture's actual depth map before measuring moving shadow stability.
+ U.uVesselShadow.value=shadow.target.depthTexture;
+ const frames=[],motion=[];
+ for(let i=0;i<12;i++){
+  ship.position.x=i*.18;camera.position.set(19+(follow?i*.18:0),19,-24);camera.lookAt(follow?i*.18:0,7,0);camera.updateMatrixWorld();
+  updateVesselLighting(ship);
+  updateFrameUniforms(camera,camera.projectionMatrix,1/60,i/60,i);shadow.update(ship,force);
+  renderer.setRenderTarget(target);renderer.setClearColor(0x101b23,1);renderer.clear();renderer.render(scene,camera);
+  const pixels=new Float32Array(640*480*4);renderer.readRenderTargetPixels(target,0,0,640,480,pixels);
+  frames.push(pixels);
+  const gl=renderer.getContext(),velocity=new Float32Array(pixels.length);gl.readBuffer(gl.COLOR_ATTACHMENT1);gl.readPixels(0,0,640,480,gl.RGBA,gl.FLOAT,velocity);gl.readBuffer(gl.COLOR_ATTACHMENT0);
+  if(i>0){let max=0;for(let j=0;j<velocity.length;j+=4)if(velocity[j+2]>1)max=Math.max(max,Math.hypot(velocity[j]*640,velocity[j+1]*480));motion.push(max);}
+ }
+ const deltas=frames.slice(1).map((b,i)=>{const a=frames[i];let changed=0,total=0;for(let j=0;j<a.length;j+=4){const d=Math.max(Math.abs(a[j]-b[j]),Math.abs(a[j+1]-b[j+1]),Math.abs(a[j+2]-b[j+2]));if(d>20/255)changed++;total+=d;}return {changed,mean:total/(640*480)};});
+ const lightLevel=U.uVesselLightLevel.value;U.uStormFactor.value=originalStorm;U.uVesselLightLevel.value=0;
+ return {deltas,maxChanged:Math.max(...deltas.map(d=>d.changed)),maxMotion:Math.max(...motion),lightLevel};
+};
+window.runCrewOcclusion=()=>{
+ const models=new Vessels({renderer,scene:new THREE.Scene(),underwater:{scene:new THREE.Scene()}});
+ const w=createWorld();addPlayer(w,'a');addPlayer(w,'b');
+ for(const id of ['a','b']){act(w,id,'helm');act(w,id,'leaveHelm');}
+ models.update(w,'a','deck');
+ camera.position.copy(models.ship.localToWorld(new THREE.Vector3(0,3.6,5.5)));
+ models.updateCameraVisibility(camera);
+ const overlap={visible:models.crew[1].visible,inside:new THREE.Box3().setFromObject(models.crew[1]).containsPoint(camera.position)};
+ w.players.b.deckX=1.5;models.update(w,'a','deck');models.updateCameraVisibility(camera);
+ const nearby=models.crew[1].visible;
+ w.players.b.deckX=0;models.update(w,'a','chase');camera.position.y+=10;models.updateCameraVisibility(camera);
+ const chase=models.crew.map(g=>g.visible);
+ for(const p of Object.values(w.players)){p.mode='diver';p.x=w.ship.x;p.y=-5;p.z=w.ship.z;}
+ models.update(w,'a','deck');camera.position.set(w.ship.x,-5,w.ship.z);models.updateCameraVisibility(camera);
+ return {overlap,nearby,chase,submerged:{visible:models.crew[1].visible,waterVisible:models.waterCrew[1].visible}};
+};window.ready=true;
+</script></body></html>

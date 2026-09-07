@@ -309,7 +309,7 @@ export class UnderwaterWorld {
     cam.updateMatrixWorld();U.uUnderwaterShadowMode.value=lamp?1:0;
     U.uReefShadowMatrix.value.multiplyMatrices(cam.projectionMatrix,cam.matrixWorldInverse);
     const hidden=[];
-    this.root.traverse(o=>{if(o.isPoints||o.name==='Marine life'||o.name==='Unbroken seabed'||o===this.pelagic.group){hidden.push([o,o.visible]);o.visible=false;}});
+    this.scene.traverse(o=>{if(o.isPoints||o.name==='Marine life'||o.name==='Unbroken seabed'||o===this.pelagic.group){hidden.push([o,o.visible]);o.visible=false;}});
     this.scene.overrideMaterial=this.shadowMaterial;
     r.setRenderTarget(this.shadowTarget);r.setClearColor(0xffffff,1);r.clear();r.render(this.scene,cam);
     this.scene.overrideMaterial=null;hidden.forEach(([o,v])=>o.visible=v);

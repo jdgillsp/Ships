@@ -1,10 +1,17 @@
 import * as THREE from 'three';
+import { WAKE_POINTS } from '../game/WakeTrail.js';
 
 /**
  * One uniform object graph shared by reference across every material in the
  * scene. Update once per frame in App.update(), everything follows.
  */
 export const U = {
+  uVesselShadow: { value: null },
+  uVesselShadowMatrix: { value: new THREE.Matrix4() },
+  uNavigationSea: { value: new THREE.Vector3(0, 0, 0) },
+  uShipWake: { value: Array.from({ length: WAKE_POINTS }, () => new THREE.Vector4(0, 0, 0, 0)) },
+  uShipWakeCount: { value: 0 },
+  uShipWakeBounds: { value: new THREE.Vector4(0, 0, 0, 0) },
   uTime: { value: 0 },
   uDt: { value: 1 / 60 },
   uFrame: { value: 0 },
@@ -32,6 +39,11 @@ export const U = {
   uAtmoMieG: { value: 0.78 },
   uAtmoGroundAlbedo: { value: new THREE.Vector3(0.06, 0.09, 0.12) },
   uAmbientColor: { value: new THREE.Vector3(0.1, 0.2, 0.35) },
+  uVesselLightLevel: { value: 0 },
+  uVesselWorkLight0: { value: new THREE.Vector3() },
+  uVesselWorkLight1: { value: new THREE.Vector3() },
+  uVesselWorkDirection: { value: new THREE.Vector3(0, -.78, -.63).normalize() },
+  uVesselDeckPlane: { value: new THREE.Vector4(0, 1, 0, -1.72) },
 
   // ---- weather
   uWindDir: { value: new THREE.Vector2(1, 0) },

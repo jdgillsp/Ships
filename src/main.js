@@ -27,6 +27,16 @@ function fail(err) {
 }
 
 async function main() {
+  const entry = new URL(location.href);
+  const requestedMode = entry.searchParams.get('mode');
+  const gameMode = requestedMode === 'expedition' || (requestedMode !== 'explore' && !['site', 'place', 'depth', 'act', 'lab', 'surface', 'seed'].some(key => entry.searchParams.has(key)));
+  // Session terrain must agree with the authoritative collision field.
+  // Quality stays local; old exploration recipes continue to use their URLs.
+  if (gameMode) {
+    const params = new URLSearchParams();
+    for (const key of ['room', 'preset', 'adaptive', 'profile']) if (entry.searchParams.has(key)) params.set(key, entry.searchParams.get(key));
+    params.set('mode', 'expedition'); entry.search = params; history.replaceState(null, '', entry);
+  }
   const canvas = document.getElementById('gl');
   const app = new App(canvas, progress);
   canvas.addEventListener('webglcontextlost', (event) => {
@@ -44,17 +54,23 @@ async function main() {
   const { installDirector } = await import('./weather/Director.js');
   const director = installDirector(app);
 
-  const { installUI } = await import('./ui/Overlay.js');
-  installUI(app);
-
   const p = app.params;
+  if (!gameMode) {
+    const { installUI } = await import('./ui/Overlay.js');
+    installUI(app);
+  }
   if (p.get('act') !== null) director.gotoAct(parseInt(p.get('act'), 10) || 0);
   if (p.get('director') === '0') director.enabled = false;
   if (p.get('debug') !== null) app.setDebugMode(parseInt(p.get('debug'), 10) || 0);
   if (p.get('paused') === '1') app.paused = true;
 
-  const { Expedition } = await import('./underwater/Expedition.js');
-  app.expedition = new Expedition(app);
+  if (gameMode) {
+    const { Game } = await import('./game/Game.js');
+    app.game = new Game(app);
+  } else {
+    const { Expedition } = await import('./underwater/Expedition.js');
+    app.expedition = new Expedition(app);
+  }
 
   app.start();
   setTimeout(() => {
@@ -63,7 +79,7 @@ async function main() {
     boot.inert = true;
     setTimeout(() => boot.remove(), 1500);
     hud.classList.add('on');
-    if (!app.expedition.active) document.body.classList.add('cine');
+    if (!app.game && !app.expedition.active) document.body.classList.add('cine');
   }, 350);
 
   window.addEventListener('error', (e) => console.error('[runtime]', e.error || e.message));

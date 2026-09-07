@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { NIGHT_LIGHTING_GLSL } from './NightLightingGLSL.js';
 import { U } from '../core/SharedUniforms.js';
 import { FullScreenPass, makeRT, PingPong } from '../gfx/FullScreenPass.js';
 import { ATMO_COMMON } from './AtmosphereGLSL.js';
@@ -25,6 +26,8 @@ const _pa = new THREE.Vector3();
 const _pb = new THREE.Vector3();
 
 const CLOUD_COMMON = /* glsl */ `
+${NIGHT_LIGHTING_GLSL}
+uniform vec3 uMoonDir;
 uniform sampler3D uCloudShape;
 uniform sampler3D uCloudDetail;
 uniform sampler2D uCurlTex;
@@ -159,6 +162,10 @@ float cloudDensity(vec3 p, float h, float detail) {
   // Higher layers outrun the base: the shear is what tilts a tower downwind
   // and smears its anvil, and it costs nothing.
   vec3 q = p;
+  // Intersections use planet-centred coordinates; procedural texture scaling
+  // must use local altitude. Scaling the 6,360 km planet radius made a 10 cm
+  // thickness change move the noise by whole cells, corrupting cloud history.
+  q.y -= PLANET_R;
   q.xz += uCloudWind * uCloudTime * (0.6 + h * 1.5);
 
   vec3 wm = weatherAt(q.xz);
@@ -293,8 +300,8 @@ uniform vec3 uDetailFade;
 
 /**
  * Skylight arriving at the deck, split into what reaches the tops and what
- * crawls in under the base. Both come straight out of the sky LUT so they
- * track sunset, overcast and night without any hand-tuned constants.
+ * crawls in under the base. Solar light comes from the sky LUT; night fill
+ * uses the same radiance scale as the visible sky.
  */
 void skyAmbient(vec3 viewPos, vec3 rd) {
   vec3 up = getValFromSkyLUT(uSkyAmbLUT, viewPos, vec3(0.0, 1.0, 0.0), uSunDir);
@@ -315,7 +322,7 @@ void skyAmbient(vec3 viewPos, vec3 rd) {
   gAmbBottom = (side * 0.50 + up * 0.15) * uSunIntensity * vec3(0.80, 0.88, 1.0);
   // The sun LUT reaches zero at night; the visible moon and sky still light
   // cloud. Keep that weak fill so a night deck retains shape against the stars.
-  float night=1.0-smoothstep(-.10,.06,uSunDir.y);
+  float night=nightRadianceScale(uSunDir.y);
   gAmbTop+=vec3(.006,.012,.024)*night;
   gAmbBottom+=vec3(.002,.004,.009)*night;
 }
@@ -597,6 +604,7 @@ void main(){
                         sunColor, diag);
 
   vec3 haze = getValFromSkyLUT(uSkyViewLUT, viewPos, rd, uSunDir) * uSunIntensity;
+  haze += nightSkyGlow(rd, uMoonDir) * nightRadianceScale(uSunDir.y);
   cl.rgb = applyAerial(cl.rgb, cl.a, diag.x, haze);
 
   if (uCloudDebug > 0) {
@@ -724,9 +732,10 @@ uniform int uInterleave;
 in vec2 vUv;
 layout(location = 0) out vec4 oColor;
 
-// Catmull-Rom over the nine nearest texels, gathered as four bilinear taps.
-// Straight bilinear magnification turns a half-resolution cumulus into a
-// lattice of diamonds; the cubic keeps an edge an edge.
+// Catmull-Rom's outer weights are negative. Only the two positive centre
+// weights can share a bilinear tap; combining an outer lobe with its neighbour
+// moves the lookup outside that pair and creates a grid along cloud edges.
+// Nine taps reconstruct the full 4x4 footprint without that sampling error.
 vec4 bicubic(vec2 uv) {
   vec2 pos = uv * uSrcRes - 0.5;
   vec2 base = floor(pos);
@@ -736,29 +745,55 @@ vec4 bicubic(vec2 uv) {
   vec2 w1 = 1.5 * f3 - 2.5 * f2 + 1.0;
   vec2 w3 = 0.5 * (f3 - f2);
   vec2 w2 = 1.0 - w0 - w1 - w3;
-  vec2 s0 = w0 + w1, s1 = w2 + w3;
-  vec2 t0 = (base - 0.5 + w1 / s0) * uInvSrc;
-  vec2 t1 = (base + 1.5 + w3 / s1) * uInvSrc;
-  return texture(uSrc, vec2(t0.x, t0.y)) * (s0.x * s0.y)
-       + texture(uSrc, vec2(t1.x, t0.y)) * (s1.x * s0.y)
-       + texture(uSrc, vec2(t0.x, t1.y)) * (s0.x * s1.y)
-       + texture(uSrc, vec2(t1.x, t1.y)) * (s1.x * s1.y);
+  vec2 w12 = w1 + w2;
+  vec2 t0 = (base - 0.5) * uInvSrc;
+  vec2 t12 = (base + 0.5 + w2 / w12) * uInvSrc;
+  vec2 t3 = (base + 2.5) * uInvSrc;
+  return texture(uSrc, vec2(t0.x, t0.y)) * (w0.x * w0.y)
+       + texture(uSrc, vec2(t12.x, t0.y)) * (w12.x * w0.y)
+       + texture(uSrc, vec2(t3.x, t0.y)) * (w3.x * w0.y)
+       + texture(uSrc, vec2(t0.x, t12.y)) * (w0.x * w12.y)
+       + texture(uSrc, vec2(t12.x, t12.y)) * (w12.x * w12.y)
+       + texture(uSrc, vec2(t3.x, t12.y)) * (w3.x * w12.y)
+       + texture(uSrc, vec2(t0.x, t3.y)) * (w0.x * w3.y)
+       + texture(uSrc, vec2(t12.x, t3.y)) * (w12.x * w3.y)
+       + texture(uSrc, vec2(t3.x, t3.y)) * (w3.x * w3.y);
+}
+
+// A moving box must follow the fractional source position. Snapping its
+// centre to a texel corner hides one grid but creates flat steps in its place.
+// Integrate the linear source over a two- or four-texel window. Its fractional
+// outer weights can share bilinear taps with their full-weight neighbours.
+vec4 motionBox(vec2 uv) {
+  vec2 p = uv * uSrcRes;
+  vec2 base = floor(p), f = p - base;
+  if (uInterleave == 2) {
+    vec2 w = (2.0 - f) * 0.5;
+    vec2 a = (base - 0.5 + 1.0 / (2.0 - f)) * uInvSrc;
+    vec2 b = (base + 1.5) * uInvSrc;
+    return texture(uSrc, vec2(a.x, a.y)) * w.x * w.y
+         + texture(uSrc, vec2(b.x, a.y)) * (1.0 - w.x) * w.y
+         + texture(uSrc, vec2(a.x, b.y)) * w.x * (1.0 - w.y)
+         + texture(uSrc, vec2(b.x, b.y)) * (1.0 - w.x) * (1.0 - w.y);
+  }
+  vec2 wa = (2.0 - f) * 0.25, wc = (1.0 + f) * 0.25;
+  vec2 a = (base - 1.5 + 1.0 / (2.0 - f)) * uInvSrc;
+  vec2 b = (base + 0.5) * uInvSrc;
+  vec2 c = (base + 1.5 + f / (1.0 + f)) * uInvSrc;
+  return texture(uSrc, vec2(a.x, a.y)) * wa.x * wa.y
+       + texture(uSrc, vec2(b.x, a.y)) * 0.25 * wa.y
+       + texture(uSrc, vec2(c.x, a.y)) * wc.x * wa.y
+       + texture(uSrc, vec2(a.x, b.y)) * wa.x * 0.25
+       + texture(uSrc, vec2(b.x, b.y)) * 0.0625
+       + texture(uSrc, vec2(c.x, b.y)) * wc.x * 0.25
+       + texture(uSrc, vec2(a.x, c.y)) * wa.x * wc.y
+       + texture(uSrc, vec2(b.x, c.y)) * 0.25 * wc.y
+       + texture(uSrc, vec2(c.x, c.y)) * wc.x * wc.y;
 }
 
 void main(){
   vec4 c = bicubic(vUv);
-  if (uSharpen > 0.002) {
-    // Snap to the nearest texel corner first. A bilinear tap sitting exactly on
-    // a corner averages the four texels around it, making a 2x2 box. Four
-    // such taps one texel out on each diagonal instead make a 4x4 box.
-    vec2 corner = (floor(vUv / uInvSrc - 0.5) + 1.0) * uInvSrc;
-    vec4 wide = uInterleave == 2 ? texture(uSrc, corner) : (
-                texture(uSrc, corner + vec2(-1.0, -1.0) * uInvSrc)
-              + texture(uSrc, corner + vec2( 1.0, -1.0) * uInvSrc)
-              + texture(uSrc, corner + vec2(-1.0,  1.0) * uInvSrc)
-              + texture(uSrc, corner + vec2( 1.0,  1.0) * uInvSrc)) * 0.25;
-    c = mix(c, wide, uSharpen);
-  }
+  if (uSharpen > 0.002) c = mix(c, motionBox(vUv), uSharpen);
   c.a = clamp(c.a, 0.0, 1.0);
   oColor = max(c, vec4(0.0));
 }
@@ -796,6 +831,7 @@ void main(){
   vec4 diag;
   vec4 cl = marchClouds(uCamPos, rd, hash12(gl_FragCoord.xy + uFrame), sunColor, diag);
   vec3 haze = getValFromSkyLUT(uSkyViewLUT, viewPos, rd, uSunDir) * uSunIntensity;
+  haze += nightSkyGlow(rd, uMoonDir) * nightRadianceScale(uSunDir.y);
   cl.rgb = applyAerial(cl.rgb, cl.a, diag.x, haze);
   oColor = cl;
 }
@@ -839,6 +875,7 @@ export class Clouds {
       uCloudContrast: { value: 1.6 },
       uSunIntensity: U.uSunIntensity,
       uSunDir: U.uSunDir,
+      uMoonDir: U.uMoonDir,
       uSkyAmbLUT: { value: atmosphere.skyViewRT.texture },
       uAmbientFlash: U.uAmbientFlash,
       uLightningColor: U.uLightningColor,
@@ -907,7 +944,9 @@ export class Clouds {
 
   setQuality(q) {
     this.scale = q.cloudScale;
-    this.interleave=q.cloudSteps>=96?2:4;
+    // Ray length and screen refresh density are separate quality decisions.
+    // Balanced can resolve a cloud fully without multiplying its fresh rays.
+    this.interleave = q.cloudInterleave ?? (q.cloudSteps >= 96 ? 2 : 4);
     this.activeSlots=this.interleave===2?this.slots.filter(([x,y])=>x<2&&y<2):this.slots;
     for(const pass of [this.marchPass,this.reprojPass,this.upsamplePass])pass.set('uInterleave',this.interleave);
     this.enabled = q.cloudEnabled;
@@ -994,6 +1033,23 @@ export class Clouds {
     const thickness = Math.max(s.uCloudTop.value - s.uCloudBottom.value, 200);
     s.uCloudAspect.value = THREE.MathUtils.clamp(
       s.uCloudScaleM.value / (thickness * 4.4), 0.8, 1.7);
+
+    // A hard weather cut has no useful temporal history. Gradual weather
+    // evolution keeps accumulating; presets, time jumps and sun cuts reseed
+    // immediately instead of dragging the old sky through a new cloud layer.
+    const shape = { coverage: s.uCoverage.value, density: s.uCloudDensity.value,
+      bottom: s.uCloudBottom.value, top: s.uCloudTop.value, scale: s.uCloudScaleM.value,
+      aspect: s.uCloudAspect.value, anvil: s.uAnvil.value, intensity: s.uSunIntensity.value, time };
+    const previous = this._historyShape;
+    if (previous && (Math.abs(shape.coverage - previous.coverage) > .12 ||
+        Math.abs(shape.density - previous.density) > .2 || Math.abs(shape.anvil - previous.anvil) > .15 ||
+        Math.abs(shape.bottom - previous.bottom) > Math.max(80, thickness * .05) ||
+        Math.abs(shape.top - previous.top) > Math.max(150, thickness * .05) ||
+        Math.abs(shape.scale / previous.scale - 1) > .03 || Math.abs(shape.aspect - previous.aspect) > .08 ||
+        Math.abs(shape.intensity - previous.intensity) > Math.max(1, previous.intensity * .2) ||
+        Math.abs(time - previous.time) > 2 || this._historySun.dot(s.uSunDir.value) < .985)) this.reset = true;
+    this._historyShape = shape;
+    (this._historySun ??= new THREE.Vector3()).copy(s.uSunDir.value);
 
     if(this.lastUpdateFrame!==undefined&&U.uFrame.value-this.lastUpdateFrame>2)this.reset=true;
     this.lastUpdateFrame=U.uFrame.value;

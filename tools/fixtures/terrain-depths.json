@@ -1,0 +1,450 @@
+[
+  {
+    "x": -140,
+    "z": 140,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -28.777005630725746
+  },
+  {
+    "x": -45,
+    "z": 140,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -31.44714348475766
+  },
+  {
+    "x": -45.00000001,
+    "z": 140,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -31.447143484962567
+  },
+  {
+    "x": -44.99999999,
+    "z": 140,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -31.447143484552747
+  },
+  {
+    "x": 150,
+    "z": 110,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -32.72560518496256
+  },
+  {
+    "x": 245,
+    "z": 110,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -35.6020696915547
+  },
+  {
+    "x": 0,
+    "z": -170,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -88.62023312300937
+  },
+  {
+    "x": 95,
+    "z": -170,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -87.03231860717807
+  },
+  {
+    "x": 0,
+    "z": -760,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -1430.39980195055
+  },
+  {
+    "x": 95,
+    "z": -760,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -1437.520397221651
+  },
+  {
+    "x": 20,
+    "z": -20,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -31.40484332473713
+  },
+  {
+    "x": 20,
+    "z": -190,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -91.01113572580459
+  },
+  {
+    "x": 20,
+    "z": -670,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -1436.5133021633924
+  },
+  {
+    "x": 2200,
+    "z": -2200,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -1431.2193836154509
+  },
+  {
+    "x": -2200,
+    "z": 2200,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -28.831743860363407
+  },
+  {
+    "x": 13.7,
+    "z": -240.9,
+    "recipe": {
+      "seed": 713
+    },
+    "depth": -129.66820534315187
+  },
+  {
+    "x": -140,
+    "z": 140,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -29.145682566456816
+  },
+  {
+    "x": -45,
+    "z": 140,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -30.780369852942265
+  },
+  {
+    "x": -45.00000001,
+    "z": 140,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -30.7803698523704
+  },
+  {
+    "x": -44.99999999,
+    "z": 140,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -30.780369853514127
+  },
+  {
+    "x": 150,
+    "z": 110,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -34.09582652206796
+  },
+  {
+    "x": 245,
+    "z": 110,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -33.60692600823111
+  },
+  {
+    "x": 0,
+    "z": -170,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -87.8577107618067
+  },
+  {
+    "x": 95,
+    "z": -170,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -87.64655185599659
+  },
+  {
+    "x": 0,
+    "z": -760,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -1434.4237802342484
+  },
+  {
+    "x": 95,
+    "z": -760,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -1433.725885197551
+  },
+  {
+    "x": 20,
+    "z": -20,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -31.914678055987046
+  },
+  {
+    "x": 20,
+    "z": -190,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -90.21901701831736
+  },
+  {
+    "x": 20,
+    "z": -670,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -1434.1701592058375
+  },
+  {
+    "x": 2200,
+    "z": -2200,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -1434.2411853393346
+  },
+  {
+    "x": -2200,
+    "z": 2200,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -28.061521561933617
+  },
+  {
+    "x": 13.7,
+    "z": -240.9,
+    "recipe": {
+      "seed": 12,
+      "relief": 0.3,
+      "habitatScale": 0.65
+    },
+    "depth": -132.41635761079772
+  },
+  {
+    "x": -140,
+    "z": 140,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -31.727377332127887
+  },
+  {
+    "x": -45,
+    "z": 140,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -33.209725381537226
+  },
+  {
+    "x": -45.00000001,
+    "z": 140,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -33.20972537873837
+  },
+  {
+    "x": -44.99999999,
+    "z": 140,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -33.20972538433607
+  },
+  {
+    "x": 150,
+    "z": 110,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -36.74093016333131
+  },
+  {
+    "x": 245,
+    "z": 110,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -31.370445358213352
+  },
+  {
+    "x": 0,
+    "z": -170,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -88.55723307894714
+  },
+  {
+    "x": 95,
+    "z": -170,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -86.63505556962792
+  },
+  {
+    "x": 0,
+    "z": -760,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -1436.8487596859563
+  },
+  {
+    "x": 95,
+    "z": -760,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -1432.0735062283593
+  },
+  {
+    "x": 20,
+    "z": -20,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -34.12744662072154
+  },
+  {
+    "x": 20,
+    "z": -190,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -91.5735498968492
+  },
+  {
+    "x": 20,
+    "z": -670,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -1434.9779606020331
+  },
+  {
+    "x": 2200,
+    "z": -2200,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -1431.4024419464743
+  },
+  {
+    "x": -2200,
+    "z": 2200,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -27.327349741859827
+  },
+  {
+    "x": 13.7,
+    "z": -240.9,
+    "recipe": {
+      "worldSeed": 997,
+      "relief": 2,
+      "habitatScale": 1.5
+    },
+    "depth": -134.47534009934506
+  }
+]

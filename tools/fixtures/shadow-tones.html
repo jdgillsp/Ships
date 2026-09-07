@@ -1,0 +1,21 @@
+<!doctype html><html><head><link rel="icon" href="data:,"></head><body><script type="module">
+import * as THREE from 'three';
+import { PostFX } from '../../src/post/PostFX.js';
+const width=128,height=32, renderer=new THREE.WebGLRenderer();renderer.setSize(width,height);document.body.append(renderer.domElement);
+const post=new PostFX(renderer,width,height),pass=post.passes.composite;
+const levels=[0,.002,.004,.008,.016,.032,.18,1],data=new Float32Array(width*height*4);
+for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4;data.set([levels[Math.floor(x/16)],levels[Math.floor(x/16)],levels[Math.floor(x/16)],1],i);}
+const tex=new THREE.DataTexture(data,width,height,THREE.RGBAFormat,THREE.FloatType);tex.needsUpdate=true;
+const exposure=new THREE.DataTexture(new Float32Array([1,1,1,1]),1,1,THREE.RGBAFormat,THREE.FloatType);exposure.needsUpdate=true;
+const target=new THREE.WebGLRenderTarget(width,height,{type:THREE.FloatType});
+pass.set('uColor',tex).set('uBloom',tex).set('uExposure',exposure).set('uBloomStrength',0).set('uVignette',0).set('uGrain',0).set('uChromatic',0).set('uSaturation',1).set('uWetLens',0).set('uFlash',0);pass.uniforms.uResolution.value.set(width,height);
+window.probe=()=>{
+ const results=[];
+ for(const tone of [0,1])for(const contrast of [1,1.04]){
+  pass.set('uTonemapMode',tone).set('uContrast',contrast);pass.render(renderer,target);
+  const pixels=new Float32Array(data.length);renderer.readRenderTargetPixels(target,0,0,width,height,pixels);
+  const means=levels.map((input,j)=>{let sum=0;for(let y=0;y<height;y++)for(let x=j*16;x<(j+1)*16;x++)sum+=pixels[(y*width+x)*4];return{input,output:sum/(16*height)};});results.push({tone,contrast,means});
+ }
+ return {results,error:renderer.getContext().getError()};
+};window.ready=true;
+</script></body></html>

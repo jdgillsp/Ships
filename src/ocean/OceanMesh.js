@@ -392,6 +392,9 @@ uniform float uStormFactor;
 uniform vec3 uWaterScatter;
 uniform vec3 uWaterAbsorb;
 uniform float uFoamStrength;
+uniform vec4 uShipWake[32];
+uniform int uShipWakeCount;
+uniform vec4 uShipWakeBounds;
 uniform float uCurrentStrength;
 uniform vec4 uLightning0;
 uniform vec4 uLightning1;
@@ -427,6 +430,30 @@ in vec4 vPrevClipNJ;
 
 layout(location = 0) out vec4 oColor;
 layout(location = 1) out vec4 oVelocity;
+
+float shipWake(vec2 p) {
+  if (uShipWakeCount < 2 || any(lessThan(p, uShipWakeBounds.xy)) || any(greaterThan(p, uShipWakeBounds.zw))) return 0.0;
+  float nearest = 1e10;
+  vec4 deposit = vec4(0.0);
+  for (int i = 1; i < uShipWakeCount; i++) {
+    vec4 a = uShipWake[i - 1], b = uShipWake[i];
+    vec2 ab = b.xy - a.xy;
+    float along = clamp(dot(p - a.xy, ab) / max(dot(ab, ab), .001), 0.0, 1.0);
+    vec4 candidate = mix(a, b, along);
+    float d2 = dot(p - candidate.xy, p - candidate.xy);
+    if (d2 < nearest) { nearest = d2; deposit = candidate; }
+  }
+  // Evaluate the cross-section once at the closest part of the path. Taking
+  // the maximum of offset rings for every segment creates a repeating lattice.
+  float age = max(0.0, uNavigationSea.y - deposit.z);
+  float eddy = vnoise2(p * .65 + vec2(uTime * .09, -uTime * .06));
+  float dist = sqrt(nearest) + (eddy - .5) * (1.0 + age * .12);
+  float fade = pow(max(0.0, 1.0 - age / 14.0), 1.5) * deposit.w;
+  float churn = 1.0 - smoothstep(.2, 1.65 + age * .21, dist);
+  float shoulders = 1.0 - smoothstep(.1, .9 + age * .09, abs(dist - (2.2 + age * .58)));
+  float flecks = vnoise2(p * 3.7 - vec2(uTime * .17));
+  return fade * (churn * 1.25 + shoulders * .85) * (.25 + eddy * .8 + flecks * .65);
+}
 
 vec4 sampleCascadeGrad(sampler2D tex, vec2 p, float scale, vec2 ddx, vec2 ddy) {
   return textureGrad(tex, p / scale, ddx / scale, ddy / scale);
@@ -492,9 +519,11 @@ void main(){
   vec4 d1 = sampleCascadeGrad(uOceanDeriv1, q, uOceanScales.y, ddx, ddy) * uCascadeGain.y;
   vec4 d2 = sampleCascadeGrad(uOceanDeriv2, q, uOceanScales.z, ddx, ddy) * uCascadeGain.z;
   vec4 dsum = d0 + d1 + d2;
+  dsum *= mix(1.0,0.16,uNavigationSea.x);
 
   vec2 slope = vec2(dsum.x / max(1.0 + dsum.z, 0.05), dsum.y / max(1.0 + dsum.w, 0.05));
   slope *= (1.0 - vCalm * 0.85);
+  slope += navigationSlope(vFlatPos);
   vec3 N = normalize(vec3(-slope.x, 1.0, -slope.y));
 
   // Capillary detail on top of the spectrum. This used to fade on raw distance,
@@ -610,6 +639,10 @@ void main(){
   // simulation deposited there.
   float onset = mix(0.62, 0.26, clamp(uWhitecapCoverage / 0.16, 0.0, 1.0));
   float carved = foamMask * (0.10 + foamNoise * 1.55);
+  // Shade wake foam as part of the water itself: it rides every wave and uses
+  // the same light and depth, with no intersecting translucent geometry.
+  float wakeFoam = shipWake(vWorldPos.xz);
+  carved = max(carved, wakeFoam * (.45 + foamNoise * 1.35));
   float foam = smoothstep(onset, onset + 0.30, carved);
   foam *= mix(0.35, 1.0, foamDetail);
   float foamThin = smoothstep(onset * 0.55, onset + 0.30, carved);

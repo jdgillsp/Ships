@@ -15,6 +15,7 @@ import { OCEAN_SAMPLE_GLSL } from '../ocean/OceanSampleGLSL.js';
 import { PostFX } from '../post/PostFX.js';
 import { CinematicCamera } from '../camera/CinematicCamera.js';
 import { GpuProfiler } from './GpuProfiler.js';
+import { FrameTiming } from './FrameTiming.js';
 import { UnderwaterWorld } from '../underwater/UnderwaterWorld.js';
 import { WaterInterface } from '../underwater/WaterInterface.js';
 
@@ -28,6 +29,18 @@ export class App {
     this.paused = false;
     this._lastT = 0;
     this._projNoJitter = new THREE.Matrix4();
+    document.addEventListener('visibilitychange', () => {
+      // A browser can throttle hidden callbacks or suspend them entirely.
+      // Neither interval measures the cost of drawing this world.
+      this.discardNextFrameTiming = true;
+      this.quality?.resetTiming();
+      this.frameTiming?.reset();
+      if (!document.hidden) {
+        if (this.post) this.post.reset = true;
+        if (this.clouds) this.clouds.reset = true;
+        if (this.game) this.game.cameraSnap = true;
+      }
+    });
   }
 
   async init() {
@@ -64,6 +77,7 @@ export class App {
     const params = new URLSearchParams(location.search);
     this.params = params;
     this.profiler = new GpuProfiler(renderer);
+    this.frameTiming = new FrameTiming(gl, this.profiler.ext);
     this.profiler.enabled = params.get('profile') === '1';
     this.quality = new Quality(params.get('preset') || autoDetectPreset(this.caps.renderer));
     if (params.get('adaptive') === '0') this.quality.adaptive = false;
@@ -153,6 +167,7 @@ export class App {
   }
 
   _resize(force = false) {
+    this.frameTiming?.reset();
     const dpr = Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio);
     const cssW = window.innerWidth, cssH = window.innerHeight;
     const w = Math.max(2, Math.floor(cssW * dpr * this.quality.effectiveScale));
@@ -187,6 +202,10 @@ export class App {
     const loop = (t) => {
       if (!this.running) return;
       requestAnimationFrame(loop);
+      if (document.hidden) {
+        this.discardNextFrameTiming = true;
+        return;
+      }
       // A deliberate world rebuild is CPU work between frames, not evidence
       // that the GPU needs a lower rendering preset.
       const dtRaw = this.discardNextFrameTiming ? 1 / 60 : (t - this._lastT) / 1000;
@@ -194,7 +213,8 @@ export class App {
       this._lastT = t;
       const dt = Math.min(Math.max(dtRaw, 1e-4), 0.05);
       this.frameMs = dtRaw * 1000;
-      this.render(dt);
+      this.frameTiming?.begin(this.quality.adaptive && !this.profiler.enabled);
+      try { this.render(dt); } finally { this.frameTiming?.end(); }
     };
     requestAnimationFrame(loop);
   }
@@ -204,7 +224,7 @@ export class App {
     this.time += scaled;
     this.frame++;
 
-    if (this.quality.tick(this.frameMs)) this._resize();
+    if (this.quality.tick(this.frameMs, this.frameTiming?.workMs(this.frameMs))) this._resize();
 
     this.beforeUpdate?.(scaled, dt);
     this.underwater?.tick(scaled);
@@ -303,6 +323,7 @@ export class App {
     prof.collect();
 
     if (this._debugTex && this._blit) this._blit.render(r, null);
+    this.afterRender?.();
   }
 
   /**

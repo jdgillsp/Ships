@@ -1,5 +1,23 @@
 # ABYSSAL — The Living Deep
 
+## Kestrel: cooperative expeditions
+
+The local app now opens **The lost archive**, a playable expedition for **1–4 players** aboard one procedural cutter. Sail from Pelican Station to a marked reef wreck, anchor, dive, attach the archive crate, recover it with the winch, and deliver it home as the weather builds. Play solo or use **Invite crew** to share a private room. Players can switch freely between the helm, dive team, and winch.
+
+To run the complete game:
+
+```sh
+npm ci
+npm run build
+npm start
+```
+
+Open [the local game](http://localhost:8787/). This Node server serves both the production website and multiplayer rooms. The original ocean explorer remains available through **Free exploration**, at [`?mode=explore`](http://localhost:8787/?mode=explore), and through existing habitat/depth/seed links.
+
+For development, run `npm run server` and `npm run dev` in separate terminals. Open the URL printed by Vite; it forwards `/api` to the multiplayer server on port 8787.
+
+See [the expedition guide](docs/EXPEDITIONS.md) for controls, the mission walkthrough, hosting, reconnect behavior, and verification commands. The existing hosted exploration link below has **not** been updated with this game.
+
 A procedural expansion of [ABYSSAL by Token-Gremlin](https://github.com/Token-Gremlin/natural-disasters). Begin at sea level, floating with the waves. Dive into a sunlit reef, a kelp forest, the continental slope and a 1,400-metre trench, all grown together from one seed. Swim through the waterline into the sky, or follow the canyon into the dark.
 
 [**Explore the living deep**](https://abyssal-living-deep.netlify.app/)
@@ -127,7 +145,9 @@ npm run build  # static site in dist/
 npm run preview
 ```
 
-Deploy `dist/` to any static host. `netlify.toml` contains the Netlify build settings. The GitHub Pages workflow is available for manual use; it does not deploy automatically.
+The original exploration mode can be served from a static host using `?mode=explore`. **Multiplayer requires the running Node server**, or a reverse proxy forwarding `/api` to it; a static `dist/` deployment alone cannot create or join expeditions. `netlify.toml` contains the legacy static build settings. The GitHub Pages workflow is available for manual use; it does not deploy automatically.
+
+Run `npm run build` then `npm start` for expeditions. Voyages autosave to `.expeditions/` and survive server restarts. Use **Settings → Save & return to menu**, then **Resume voyage** on the launch screen to return as the same crewmate. Saved rooms last 30 days after their last activity. Hosting requires persistent storage; `EXPEDITION_DATA_DIR` selects its location. See [Expeditions](docs/EXPEDITIONS.md) for crew controls and hosting details.
 
 ### Reproducible URLs
 

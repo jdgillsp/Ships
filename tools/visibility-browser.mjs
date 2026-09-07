@@ -1,0 +1,34 @@
+import puppeteer from 'puppeteer';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { createServer } from 'vite';
+import { createGameServer } from '../server/index.mjs';
+const app=createGameServer();app.server.listen(0,'127.0.0.1');await new Promise(r=>app.server.once('listening',r));
+const base=`http://127.0.0.1:${app.server.address().port}`;
+const vite=await createServer({logLevel:'error',server:{host:'127.0.0.1',port:0,proxy:{'/api':base}}});await vite.listen();
+const browser=await puppeteer.launch({headless:true,args:['--no-sandbox','--use-angle=d3d11','--ignore-gpu-blocklist'],defaultViewport:{width:1280,height:800}});
+const p=await browser.newPage(),errors=[],out='tools/shots/visibility';await fs.mkdir(out,{recursive:true});
+p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
+try{
+ await p.goto(vite.resolvedUrls.local[0]+'?mode=expedition&preset=low&adaptive=0');await p.waitForFunction(()=>window.__app?.running&&!document.getElementById('boot'),{timeout:120000});
+ await p.click('#start-expedition');await p.waitForFunction(()=>window.__app.game.lastMode==='deck');
+ await p.keyboard.press('h');await p.waitForFunction(()=>window.__app.game.lastMode==='helm');await p.keyboard.press('b');
+ await p.keyboard.down('w');await p.waitForFunction(()=>window.__app.game.state.ship.speed>1);
+ const identity=await p.evaluate(()=>{const n=window.__app.game.net;return {room:n.room,id:n.id};}),world=app.rooms.get(identity.room).world;
+ const other=await browser.newPage();await other.goto('about:blank');await other.bringToFront();
+ await p.waitForFunction(()=>document.hidden);
+ const hidden=await p.evaluate(()=>({frame:window.__app.frame,preset:window.__app.quality.presetName,scale:window.__app.quality.dynamicScale}));
+ const start=world.time;await new Promise(r=>setTimeout(r,4200));
+ const background=await p.evaluate(()=>{const a=window.__app,g=a.game;return {frame:a.frame,ready:g.net.ready,lastReceive:performance.now()-g.net.receivedAt,lastSend:performance.now()-g.net.sentAt,keys:g.keys.size};});
+ assert.equal(background.frame,hidden.frame,'A truly hidden tab stops GPU scene submissions');
+ assert.ok(background.ready&&background.lastReceive<3000&&background.lastSend<2500,'Crew connection stays live independently of rendering');
+ assert.equal(background.keys,0);assert.equal(world.players[identity.id].input.forward||0,0,'Background pilot input is neutral');
+ assert.ok(world.time>start+2&&world.players[identity.id].connected,'The shared voyage continues');
+ const frames=[];await p.evaluate(()=>{const a=window.__app,render=a.render.bind(a);window.resumeFrames=[];a.render=dt=>{if(window.resumeFrames.length<3)window.resumeFrames.push({dt,frameMs:a.frameMs,post:a.post.reset,clouds:a.clouds.reset,camera:a.game.cameraSnap});return render(dt);};});
+ await p.bringToFront();await p.keyboard.up('w');await p.waitForFunction(()=>!document.hidden&&window.resumeFrames.length>=3);
+ const resumed=await p.evaluate(()=>({frames:window.resumeFrames,station:window.__app.game.lastMode,preset:window.__app.quality.presetName,scale:window.__app.quality.dynamicScale}));
+ assert.equal(resumed.station,'helm');assert.equal(resumed.preset,hidden.preset);assert.equal(resumed.scale,hidden.scale);
+ assert.ok(resumed.frames[0].frameMs<20&&resumed.frames[0].post&&resumed.frames[0].clouds&&resumed.frames[0].camera,'Resume discards background timing and old imagery');
+ await p.screenshot({path:`${out}/resumed-helm.png`});
+ assert.deepEqual(errors,[]);const result={hidden,background,resumed,errors};await fs.writeFile(`${out}/result.json`,JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+}finally{await browser.close();await vite.close();await app.stop();}

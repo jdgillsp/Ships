@@ -1,0 +1,67 @@
+import puppeteer from 'puppeteer';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { createGameServer } from '../server/index.mjs';
+import { voyageSites } from '../src/game/VoyageSites.js';
+
+const app = createGameServer(); app.server.listen(0, '127.0.0.1'); await new Promise(r => app.server.once('listening', r));
+const base = `http://127.0.0.1:${app.server.address().port}`, out = 'tools/shots/immersive'; await fs.mkdir(out, { recursive: true });
+const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--use-angle=d3d11', '--ignore-gpu-blocklist'], defaultViewport: { width: 1440, height: 900 } });
+const p = await browser.newPage(), errors = [], checks = [], layouts = [];
+p.on('pageerror', e => errors.push(e.message));
+p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+const boot = () => p.waitForFunction(() => window.__app?.running && !document.getElementById('boot'), { timeout: 120000 });
+const visible = selector => p.$eval(selector, e => e.checkVisibility({ visibilityProperty: true }) && e.getBoundingClientRect().width > 0);
+const quiet = () => p.waitForSelector('#game.quiet-play');
+const measure = () => p.$eval('.ship-console', e => { const r=e.getBoundingClientRect();return {width:innerWidth,left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height}; });
+try {
+  await p.goto(`${base}/?mode=expedition&preset=low&adaptive=0`); await boot();
+  await p.click('#start-expedition'); await p.waitForFunction(() => window.__app.game.lastMode === 'deck'); await quiet();
+  await p.click('#first-use-help button');
+  assert.equal(await visible('.mission-panel'),false); assert.equal(await visible('.nav-panel'),false); assert.equal(await visible('.game-top'),false);
+  for(const s of ['#crew-activities','#play-chart','#play-tools','#game-actions .suggested']) assert.ok(await visible(s),s);
+  const initial=await measure();assert.ok(initial.height<90);checks.push('quiet default retains primary action and crew activities');
+  await p.screenshot({path:`${out}/01-deck.png`});
+  await p.focus('#play-tools');await p.keyboard.press('Space');await p.waitForSelector('#game:not(.quiet-play)');
+  assert.ok(await visible('#game-settings'));assert.ok(await visible('#sea-chart'));checks.push('keyboard opens full tools');
+  await p.screenshot({path:`${out}/02-tools.png`});
+  await p.keyboard.press('Escape');await quiet();assert.equal(await p.evaluate(()=>document.activeElement.id),'play-tools');
+  await p.keyboard.press('i');await p.click('#game-settings');await p.waitForSelector('#settings-dialog[open]');
+  await p.keyboard.press('i');assert.equal(await p.evaluate(()=>window.__app.game.hud.open),true);
+  await p.click('#close-settings');await p.keyboard.press('Escape');await quiet();checks.push('dialogs isolate shortcuts and Escape returns to sea');
+  await p.click('#play-chart');await p.waitForSelector('#voyage-chart[open]');await p.keyboard.press('Escape');
+  await p.click('#crew-activities');await p.waitForSelector('#crew-activities-dialog[open]');await p.keyboard.press('Escape');
+  await p.keyboard.press('l');await p.waitForSelector('#game.lookout-active');assert.ok(await visible('#binoculars'));
+  await p.click('#binoculars');await p.waitForSelector('#game:not(.lookout-active)');checks.push('chart, activities and binocular exit accessible');
+  await p.keyboard.press('h');await p.waitForFunction(()=>window.__app.game.lastMode==='helm');
+  await p.waitForFunction(()=>document.getElementById('play-readout').textContent.includes('kn'));
+  await p.screenshot({path:`${out}/03-helm.png`});
+  await p.keyboard.press('i');assert.equal(await p.evaluate(()=>window.__app.game.lastMode),'helm');await p.keyboard.press('Escape');
+  await p.keyboard.press('h');await p.waitForFunction(()=>window.__app.game.lastMode==='deck');
+  await p.keyboard.press('n');await p.select('#voyage-destination','reef');await p.click('#plot-course');
+  const identity=await p.evaluate(()=>{const n=window.__app.game.net;return {id:n.id,room:n.room};});
+  const world=app.rooms.get(identity.room).world,site=voyageSites().find(s=>s.id==='reef');
+  Object.assign(world.players[identity.id],{mode:'diver',x:site.x,y:site.y,z:site.z});
+  await p.waitForFunction(()=>window.__app.game.lastMode==='diver');await p.waitForSelector('#survey-site:enabled');
+  assert.ok(await visible('#survey-site'));await p.focus('#survey-site');await p.keyboard.down('Space');
+  await p.waitForFunction(()=>window.__app.game.state.surveys.reef?.seconds>0);await p.keyboard.up('Space');
+  assert.match(await p.$eval('#play-readout',e=>e.textContent),/m deep.*Survey/);checks.push('diver depth and held survey progress visible');
+  const post=async(path,body,token)=>{const r=await fetch(`${base}/api/rooms/${identity.room}/${path}`,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify(body)});assert.equal(r.status,200);return r.json();};
+  const peer=await post('join',{name:'Rowan'});await post('action',{action:'crewCall',kind:'ready'},peer.token);
+  await p.waitForSelector('#crew-call-banner:not([hidden])');assert.ok(await visible('#ack-crew-call'));await p.click('#ack-crew-call');checks.push('crew call acknowledgements remain available');
+  for(const width of [1440,600,390]){
+    await p.setViewport({width,height:width===1440?900:800});
+    await p.waitForFunction(width=>innerWidth===width,{},width);
+    const layout=await measure();layouts.push(layout);assert.ok(layout.left>=0&&layout.right<=width&&layout.bottom<=900);
+    for(const s of ['#play-tools','#play-chart','#crew-activities','#survey-site']) assert.ok(await visible(s),s);
+    await p.screenshot({path:`${out}/04-survey-${width}.png`});
+  }
+  await p.setViewport({width:390,height:800,hasTouch:true});await boot();await p.click('#start-expedition');await p.waitForFunction(()=>window.__app.game.lastMode==='diver');
+  assert.ok(await visible('.touch-controls'));assert.ok(await visible('#play-tools'));layouts.push(await measure());
+  await p.screenshot({path:`${out}/05-touch.png`});checks.push('narrow and touch layouts retain actions');
+  await p.click('#play-tools');await p.click('#game-settings');await p.click('#immersive-view');await p.click('#close-settings');
+  assert.ok(await visible('.nav-panel'));assert.equal(await visible('#play-tools'),false);
+  await p.reload();await boot();assert.equal(await p.evaluate(()=>window.__app.game.settings.values.immersive),false);
+  checks.push('always-visible tools preference persists');
+  assert.deepEqual(errors,[]);const result={initial,layouts,checks,errors};await fs.writeFile(`${out}/result.json`,JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+}finally{await browser.close();await app.stop();}

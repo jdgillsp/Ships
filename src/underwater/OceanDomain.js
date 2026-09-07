@@ -42,16 +42,25 @@ export function oceanFloor(x, z, recipe = {}) {
   const broad = Math.sin(xx * 0.039 + phase) * Math.cos(zz * 0.036 + phase * 0.5) * 2;
   const dunes = Math.sin(xx * 0.105 + Math.sin(zz * 0.075 + phase) * 1.3) * 0.72;
   const channel = Math.exp(-(((xx - Math.sin(zz * 0.055) * 5) / 10) ** 2));
-  const escarpment = Math.sin(x * 0.043 + Math.sin(z * 0.026) * 2.7 + phase)
-    * Math.sin(z * 0.062 + phase) * 11 * Math.sin(trench * Math.PI);
-  const shoulder=smooth(19,77,Math.abs(x-Math.sin(z*.006)*7))*Math.sin(trench*Math.PI)*340;
-  const nearest=Math.min(Math.hypot(x+140,z-140),Math.hypot(x-150,z-110),Math.hypot(x,z+170),Math.hypot(x,z+760));
-  const scale=recipe.habitatScale??1,nx=x/scale,nz=z/scale;
-  const weathering=fieldNoise(nx/140,nz/180,seed+903);
-  const ridges=Math.max(0,Math.sin(nx*.039+Math.sin(nz*.013)*2+phase))**3;
-  const shelfRidges=(1-shelfBreak)*(ridges*(3+weathering*5)-weathering*1.4);
-  const basaltRidges=trench*(ridges*2.8+(weathering-.5)*5);
-  const widerRelief=(shelfRidges+basaltRidges)*smooth(95,155,nearest);
+  const trenchWave = Math.sin(trench * Math.PI);
+  const escarpment = trench === 0 ? 0 : Math.sin(x * 0.043 + Math.sin(z * 0.026) * 2.7 + phase)
+    * Math.sin(z * 0.062 + phase) * 11 * trenchWave;
+  const shoulder=trench === 0 ? 0 : smooth(19,77,Math.abs(x-Math.sin(z*.006)*7))*trenchWave*340;
+  // Inside any 95 m habitat core the blend is already zero, so its exact
+  // nearest distance (including four square roots) is unnecessary.
+  const core=xx*xx+zz*zz<=9025||(x-150)*(x-150)+(z-110)*(z-110)<=9025||x*x+(z+170)*(z+170)<=9025||x*x+(z+760)*(z+760)<=9025;
+  const blend=core?0:smooth(95,155,Math.min(Math.hypot(xx,zz),Math.hypot(x-150,z-110),Math.hypot(x,z+170),Math.hypot(x,z+760)));
+  let widerRelief=0;
+  // Habitat interiors deliberately suppress this detail. Avoid hashing four
+  // noise corners for every animal floor probe when their weight is zero.
+  if(blend>0){
+    const scale=recipe.habitatScale??1,nx=x/scale,nz=z/scale;
+    const weathering=fieldNoise(nx/140,nz/180,seed+903);
+    const ridges=Math.max(0,Math.sin(nx*.039+Math.sin(nz*.013)*2+phase))**3;
+    const shelfRidges=(1-shelfBreak)*(ridges*(3+weathering*5)-weathering*1.4);
+    const basaltRidges=trench*(ridges*2.8+(weathering-.5)*5);
+    widerRelief=(shelfRidges+basaltRidges)*blend;
+  }
   return -depth + shoulder + (broad * (1 + trench * 0.5) + dunes + escarpment - channel * 1.5 * (1 - trench)+widerRelief) * relief;
 }
 

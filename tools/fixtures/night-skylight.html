@@ -1,0 +1,28 @@
+<!doctype html><html><head><link rel="icon" href="data:,"></head><body><script type="module">
+import * as THREE from '/node_modules/three/build/three.module.js';
+import { SkyRenderer } from '/src/sky/SkyRenderer.js';
+import { U } from '/src/core/SharedUniforms.js';
+import { makeRT } from '/src/gfx/FullScreenPass.js';
+const renderer = new THREE.WebGLRenderer(); renderer.setSize(256,128); document.body.append(renderer.domElement);
+const texture = value => {const t=new THREE.DataTexture(new Uint8Array([value,value,value,255]),1,1);t.needsUpdate=true;return t;};
+const black=texture(0),solar=texture(16);
+const sky = new SkyRenderer(renderer,{skyViewRT:{texture:black},transmittanceRT:{texture:black}});
+const scene=new THREE.Scene();scene.add(sky.mesh);const camera=new THREE.PerspectiveCamera();
+const background=makeRT(64,32,{count:2});
+U.uCamPos.value.set(0,3,0); U.uMoonDir.value.set(0,1,0);
+function measure(rt){
+ const pixels=new Uint16Array(rt.width*rt.height*4);renderer.readRenderTargetPixels(rt,0,0,rt.width,rt.height,pixels);
+ let sum=0,max=0;for(let i=0;i<pixels.length;i+=4){const l=[0,1,2].reduce((s,k)=>s+THREE.DataUtils.fromHalfFloat(pixels[i+k]),0)/3;sum+=l;max=Math.max(max,l);}
+ return {mean:sum/(rt.width*rt.height),max};
+}
+window.probe = () => {
+ const values=[];
+ for(const night of [true,false]) for(const intensity of [1,11,22]){
+  U.uSunDir.value.set(0,night?-1:1,0);U.uSunIntensity.value=intensity;
+  sky.shared.uSkyViewLUT.value=night?black:solar;
+  sky.renderEnv();renderer.setRenderTarget(background);renderer.render(scene,camera);renderer.setRenderTarget(null);
+  values.push({night,intensity,environment:measure(sky.envRT),background:measure(background)});
+ }
+ return {values,error:renderer.getContext().getError()};
+};window.ready=true;
+</script></body></html>

@@ -1,0 +1,36 @@
+<!doctype html><html><head><link rel="icon" href="data:,"><style>body{margin:0}canvas{display:block}</style></head><body><script type="module">
+import * as THREE from '/node_modules/three/build/three.module.js';
+import { WATER_GLSL } from '/src/underwater/UnderwaterMaterial.js';
+const source=window.referenceShader||WATER_GLSL;
+const shader=source.slice(source.indexOf('float reefShadow('),source.indexOf('float hash31('));
+const renderer=new THREE.WebGLRenderer({antialias:false});renderer.setSize(640,480);document.body.append(renderer.domElement);
+const camera=new THREE.PerspectiveCamera(48,640/480,.1,260),scene=new THREE.Scene();
+const shadow=new THREE.WebGLRenderTarget(1536,1536,{minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});
+shadow.depthTexture=new THREE.DepthTexture(1536,1536,THREE.UnsignedIntType);
+const depth=new THREE.MeshDepthMaterial({side:THREE.DoubleSide});
+const target=new THREE.WebGLRenderTarget(640,480,{type:THREE.FloatType});
+const matrix=new THREE.Matrix4(),uniforms={uReefShadow:{value:shadow.depthTexture},uReefShadowMatrix:{value:matrix},uUnderwaterShadowMode:{value:0}};
+const material=new THREE.ShaderMaterial({uniforms,side:THREE.DoubleSide,vertexShader:`varying vec3 world,norm;void main(){world=(modelMatrix*vec4(position,1.)).xyz;norm=normalize(mat3(modelMatrix)*normal);gl_Position=projectionMatrix*viewMatrix*vec4(world,1.);}`,
+fragmentShader:`uniform sampler2D uReefShadow;uniform mat4 uReefShadowMatrix;uniform float uUnderwaterShadowMode;varying vec3 world,norm;${shader}void main(){gl_FragColor=vec4(vec3(reefShadow(world,normalize(norm))),1.);}`});
+const plane=new THREE.Mesh(new THREE.PlaneGeometry(80,80),material),block=new THREE.Mesh(new THREE.BoxGeometry(3,3,3),material);scene.add(plane,block);
+function render(){renderer.setRenderTarget(target);renderer.setClearColor(0,0);renderer.clear();renderer.render(scene,camera);const pixels=new Float32Array(640*480*4);renderer.readRenderTargetPixels(target,0,0,640,480,pixels);return pixels;}
+window.probe=({lamp=false,tilt=0,occluder=false,continuity=false}={})=>{
+ plane.position.set(0,-25,0);plane.rotation.set(-Math.PI/2+tilt,0,0);block.position.set(0,-21,0);block.visible=occluder;
+ camera.position.set(0,-10,14);camera.lookAt(0,-25,0);camera.updateMatrixWorld();
+ const light=lamp?new THREE.PerspectiveCamera(78,1,.2,140):new THREE.OrthographicCamera(-86,86,86,-86,1,260);
+ light.position.copy(lamp?camera.position:new THREE.Vector3(.35,.45,-.4).normalize().multiplyScalar(120).add(new THREE.Vector3(0,-25,0)));if(lamp)light.position.add(new THREE.Vector3(.75,.18,0));light.lookAt(0,-25,0);light.updateMatrixWorld();
+ matrix.multiplyMatrices(light.projectionMatrix,light.matrixWorldInverse);uniforms.uUnderwaterShadowMode.value=lamp?1:0;
+ scene.overrideMaterial=depth;renderer.setRenderTarget(shadow);renderer.setClearColor(0xffffff,1);renderer.clear();renderer.render(scene,light);scene.overrideMaterial=null;
+ // Inspect only the receiver, with an elevated caster retained in the map.
+ // Contact intersections test geometry visibility, not filter continuity.
+ block.visible=false;
+ let pixels=render(),visible=0,lit=0,dark=0,maxJump=0;
+ for(let i=0;i<pixels.length;i+=4)if(pixels[i+3]>0){visible++;if(pixels[i]>.99)lit++;if(pixels[i]<.5)dark++;}
+ if(continuity){block.visible=false;let previous;for(let step=0;step<20;step++){
+  plane.position.x=step*.001;camera.position.x=plane.position.x;camera.lookAt(plane.position.x,-25,0);camera.updateMatrixWorld();pixels=render();
+  if(previous)for(let i=0;i<pixels.length;i+=4)if(pixels[i+3]>0&&previous[i+3]>0)maxJump=Math.max(maxJump,Math.abs(pixels[i]-previous[i]));previous=pixels;
+ }}
+ renderer.setRenderTarget(null);renderer.setClearColor(0x183438,1);renderer.clear();renderer.render(scene,camera);
+ return{visible,litFraction:lit/visible,dark,maxJump,error:renderer.getContext().getError()};
+};window.ready=true;
+</script></body></html>

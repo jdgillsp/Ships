@@ -1,0 +1,31 @@
+<!doctype html><html><head><link rel="icon" href="data:,"></head><body><script type="module">
+import * as THREE from 'three';
+import { DiveSplash } from '../../src/game/DiveSplash.js';
+import { U, updateFrameUniforms } from '../../src/core/SharedUniforms.js';
+const renderer = new THREE.WebGLRenderer(), scene = new THREE.Scene(), water = new THREE.Scene();
+renderer.setSize(256, 256); document.body.append(renderer.domElement);
+const camera = new THREE.PerspectiveCamera(60, 1, .1, 100); camera.position.set(0, 1, 5); camera.lookAt(0, 1, 0); camera.updateMatrixWorld();
+const env = new THREE.DataTexture(new Uint8Array([180, 210, 240, 255]), 1, 1); env.needsUpdate = true;
+U.uEnvMap.value = env; U.uEnvMaxLod.value = 0; U.uSunDir.value.set(.3, .7, .2).normalize(); U.uSunIntensity.value = 3; U.uResolution.value.set(256, 256);
+const splash = new DiveSplash({ renderer, camera, scene, underwater: { scene: water } });
+const target = new THREE.WebGLRenderTarget(256, 256, { count: 2, type: THREE.FloatType });
+window.runSplash = (near = false, dark = false) => {
+  const attrs = splash.geometry.attributes, z = near ? 4.8 : 0;
+  attrs.position.setXYZ(0, 0, 1, z); attrs.aPrevious.setXYZ(0, -.1, 1, z); attrs.aRadius.setX(0, .25); attrs.aOpacity.setX(0, 1);
+  for (const attr of Object.values(attrs)) attr.needsUpdate = true;
+  splash.geometry.setDrawRange(0, 1); splash.air.visible = splash.water.visible = true;
+  U.uSunIntensity.value = dark ? 0 : 3; env.image.data.fill(dark ? 0 : 180); env.needsUpdate = true;
+  updateFrameUniforms(camera, camera.projectionMatrix, 1 / 60, 1, 1); U.uPrevViewProjNJ.value.copy(U.uViewProjNJ.value);
+  const expected = new THREE.Vector3(0, 1, z).applyMatrix4(U.uViewProjNJ.value).sub(new THREE.Vector3(-.1, 1, z).applyMatrix4(U.uPrevViewProjNJ.value)).multiplyScalar(.5);
+  renderer.setRenderTarget(target); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, camera);
+  const colors = new Float32Array(256 * 256 * 4), velocity = new Float32Array(colors.length);
+  renderer.readRenderTargetPixels(target, 0, 0, 256, 256, colors);
+  const gl = renderer.getContext(); gl.readBuffer(gl.COLOR_ATTACHMENT1); gl.readPixels(0, 0, 256, 256, gl.RGBA, gl.FLOAT, velocity); gl.readBuffer(gl.COLOR_ATTACHMENT0);
+  let pixels = 0, error = 0, maxAlpha = 0, maxColor = 0;
+  for (let i = 0; i < colors.length; i += 4) if (colors[i + 3] > .01) {
+    pixels++; maxAlpha = Math.max(maxAlpha, colors[i + 3]); maxColor = Math.max(maxColor, colors[i], colors[i + 1], colors[i + 2]);
+    error = Math.max(error, Math.abs(velocity[i] / colors[i + 3] - expected.x));
+  }
+  return { pixels, error, maxAlpha, maxColor, expectedMotion: expected.x, glError: gl.getError() };
+}; window.ready = true;
+</script></body></html>
