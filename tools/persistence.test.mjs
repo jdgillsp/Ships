@@ -8,6 +8,9 @@ import { RoomStore, RETENTION_MS } from '../server/RoomStore.mjs';
 import { rememberExpedition, recentExpeditions } from '../src/game/SavedExpeditions.js';
 import { oceanFloor } from '../src/underwater/OceanDomain.js';
 import { RECIPE } from '../src/game/Simulation.js';
+import { discoverWrecks } from '../src/game/WreckDiscoveries.js';
+import { SALVAGE_SITES } from '../src/game/SalvageSites.js';
+import { stormAfter } from '../src/game/WeatherOutlook.js';
 
 test('unavailable browser storage does not throw while listing or remembering voyages', () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
@@ -46,29 +49,96 @@ test('disk checkpoint survives a real HTTP server restart with the same invite a
   const f = await fixture(t), a = await f.start(), { room } = await a.post('');
   const p = await a.post(`/${room}/join`, { name: 'Rowan' });
   const w = a.rooms.get(room).world;
+  assert.equal((await a.post(`/${room}/action`, { action: 'paintHull', paint: 'blue' }, p.token)).ok, true);
+  assert.equal((await a.post(`/${room}/action`, { action: 'inscribeShip', text: 'Our ocean home', expectedRevision: 0 }, p.token)).ok, true);
+  Object.assign(w.players[p.id], SALVAGE_SITES[1].cargo, { mode: 'diver' }); discoverWrecks(w);
+  assert.equal((await a.post(`/${room}/action`, { action: 'shareSighting', type: 'turtle' }, p.token)).ok, true);
   Object.assign(w.ship, { x: 100, z: 200, speed: 3, anchor: false, pilot: p.id, propellerAngle: 123.4, anchorDrop: .35 });
   Object.assign(w.players[p.id], { mode: 'helm', input: { forward: 1 } });
   Object.assign(w.cargo, { recovered: true, attached: true, y: 3 }); w.mission = 'return';
   w.surveys.reef = { seconds: 8, completedAt: w.time, active: 0, contributors: [{ id: p.id, name: 'Rowan' }] };
-  await a.post(`/${room}/action`, { action: 'course', destination: 'reef' }, p.token);
+  w.milestones = { departed: { time: w.time, crew: ['Rowan'] } };
+  w.places = { 'place-1': { id: 'place-1', name: 'Sheltered water', x: 100, y: 0, z: 200, time: w.time, savedBy: 'Rowan' } }; w.signalSequence = 1;
+  assert.equal((await a.post(`/${room}/action`, { action: 'updatePlace', destination: 'place-1', expectedRevision: 0, name: 'Sheltered water', note: 'Kelp beside the eastern rock.' }, p.token)).ok, true);
+  await a.post(`/${room}/action`, { action: 'course', destination: 'place-1' }, p.token);
+  assert.equal((await a.post(`/${room}/action`, { action: 'chartSighting', type: 'turtle' }, p.token)).ok, true);
   await a.post(`/${room}/action`, { action: 'crewCall', kind: 'slow' }, p.token);
+  assert.equal((await a.post(`/${room}/action`, { action: 'writeCrewLog', entryId: 'persistent-crew-entry', text: 'Return to the eastern kelp at sunrise.' }, p.token)).ok, true);
   await a.stop();
   const text = await fs.readFile(path.join(f.dir, 'expeditions.json'), 'utf8');
   assert.ok(!text.includes(p.token), 'Bearer tokens never reach the disk save');
   const b = await f.start(), restored = b.rooms.get(room).world;
   assert.equal(restored.ship.anchor, true); assert.equal(restored.ship.pilot, null); assert.equal(restored.ship.speed, 0);
+  assert.equal(restored.ship.paint, 'blue');
+  assert.equal(restored.daylightStart, w.daylightStart);
+  assert.deepEqual(restored.ship.inscription, w.ship.inscription);
+  assert.deepEqual(restored.wreckDiscoveries, w.wreckDiscoveries, 'Explored wrecks survive disk restart');
+  assert.deepEqual(restored.sightings, w.sightings, 'Shared wildlife reports survive disk restart');
   assert.equal(restored.ship.propellerAngle, w.ship.propellerAngle, 'The shaft orientation survives the checkpoint');
   assert.equal(restored.ship.anchorDrop, w.ship.anchorDrop, 'The anchor deployment survives the checkpoint');
   assert.equal(restored.players[p.id].mode, 'deck'); assert.deepEqual(restored.players[p.id].input, {});
   const time = restored.time; await new Promise(r => setTimeout(r, 150)); assert.equal(restored.time, time, 'Empty voyages pause');
   const rejoined = await b.post(`/${room}/join`, { token: p.token, resume: true });
-  assert.equal(rejoined.id, p.id); assert.equal(rejoined.state.course.id, 'reef');
+  assert.equal(rejoined.id, p.id); assert.equal(rejoined.state.course.id, 'place-1');
+  assert.deepEqual(rejoined.state.places, w.places, 'Named places and their course survive a real server restart');
   assert.equal(rejoined.state.cargo.recovered, true); assert.equal(rejoined.state.mission, 'return');
   assert.deepEqual(rejoined.state.surveys.reef, w.surveys.reef);
+  assert.deepEqual(rejoined.state.milestones, w.milestones, 'Voyage memories survive disk restart and authenticated rejoin');
+  assert.deepEqual(rejoined.state.crewLog, w.crewLog, 'Crew-written memories survive disk restart and rejoin');
   assert.deepEqual(rejoined.state.calls, {}, 'Transient calls are not replayed after restarting a voyage');
   assert.equal(rejoined.state.persistence.enabled, true);
   assert.equal((await b.post(`/${room}/join`, { token: 'invalid', resume: true })).status, 409);
   assert.equal(Object.keys(restored.players).length, 1, 'Failed resume does not silently create a new player');
+});
+
+test('an accepted second salvage restores its wreck, cargo, history and continuing weather', async t => {
+  const f = await fixture(t), a = await f.start(), { room } = await a.post('');
+  const p = await a.post(`/${room}/join`, { name: 'Mira' }), w = a.rooms.get(room).world;
+  w.mission = 'return'; w.cargo.recovered = true; w.storm = .7;
+  assert.equal((await a.post(`/${room}/action`, { action: 'deliver' }, p.token)).ok, true);
+  assert.equal((await a.post(`/${room}/action`, { action: 'nextSalvage', destination: 'west' }, p.token)).ok, true);
+  await a.stop(); const b = await f.start(), restored = b.rooms.get(room).world;
+  assert.deepEqual(restored.contract, w.contract); assert.deepEqual(restored.salvageHistory, w.salvageHistory);
+  assert.deepEqual(restored.locations, w.locations); assert.deepEqual(restored.cargo, w.cargo);
+  assert.deepEqual(restored.weatherCarry, w.weatherCarry);
+  assert.equal((await b.post(`/${room}/join`, { token: p.token, resume: true })).id, p.id);
+});
+
+test('a saved pickup restores the plotted route when restart loses live diver contact', async t => {
+  const f=await fixture(t),a=await f.start(),{room}=await a.post('');
+  const captain=await a.post(`/${room}/join`,{name:'Mira'}),diver=await a.post(`/${room}/join`,{name:'Rowan'});
+  assert.equal((await a.post(`/${room}/action`,{action:'course',destination:'kelp'},captain.token)).ok,true);
+  assert.equal((await a.post(`/${room}/action`,{action:'dive'},diver.token)).ok,true);
+  assert.equal((await a.post(`/${room}/action`,{action:'pickupCourse',diver:diver.id},captain.token)).ok,true);
+  assert.equal(a.rooms.get(room).world.pickup.diver,diver.id);
+  await a.stop(); const b=await f.start(),w=b.rooms.get(room).world;
+  assert.equal(w.pickup,null); assert.equal(w.course.id,'kelp');
+  assert.equal((await b.post(`/${room}/join`,{token:captain.token,resume:true})).id,captain.id);
+  assert.equal((await b.post(`/${room}/join`,{token:diver.token,resume:true})).id,diver.id);
+  assert.equal((await b.post(`/${room}/action`,{action:'pickupCourse',diver:diver.id},captain.token)).ok,true);
+  assert.equal((await b.post(`/${room}/action`,{action:'board'},diver.token)).ok,true);
+  const recorded=structuredClone(w.pickupRecords); await b.stop(); const c=await f.start();
+  assert.deepEqual(c.rooms.get(room).world.pickupRecords,recorded);
+});
+
+test('research requests, partial survey work and filed reports survive real server restarts', async t => {
+  const f = await fixture(t), a = await f.start(), { room } = await a.post('');
+  const p = await a.post(`/${room}/join`, { name: 'Mira' }), w = a.rooms.get(room).world;
+  w.mission = 'return'; w.cargo.recovered = true;
+  assert.equal((await a.post(`/${room}/action`, { action: 'deliver' }, p.token)).ok, true);
+  assert.equal((await a.post(`/${room}/action`, { action: 'acceptResearch', destination: 'reef' }, p.token)).ok, true);
+  assert.equal((await a.post(`/${room}/action`, { action: 'dive' }, p.token)).ok, true);
+  w.players[p.id].diveRecord.maximumDepth = 12;
+  assert.equal((await a.post(`/${room}/action`, { action: 'board' }, p.token)).ok, true);
+  w.surveys.reef = { seconds: 3, completedAt: null, active: 0, contributors: [{ id: p.id, name: 'Mira' }] };
+  await a.stop(); const b = await f.start(), restored = b.rooms.get(room).world;
+  assert.deepEqual(restored.research, w.research); assert.equal(restored.surveys.reef.seconds, 3);
+  assert.equal(restored.research.experience.dives, 1); assert.equal(restored.research.experience.maximumDepth, 12);
+  await b.post(`/${room}/join`, { token: p.token, resume: true });
+  Object.assign(restored.surveys.reef, { seconds: 8, completedAt: restored.time });
+  assert.equal((await b.post(`/${room}/action`, { action: 'fileResearch' }, p.token)).ok, true);
+  await b.stop(); const c = await f.start(), filed = c.rooms.get(room).world;
+  assert.equal(filed.research, null); assert.deepEqual(filed.researchHistory, restored.researchHistory); assert.equal(filed.researchHistory[0].status, 'filed');
 });
 
 test('a completed voyage resumes its clearing sea state after a server restart', async t => {
@@ -90,12 +160,27 @@ test('a completed voyage resumes its clearing sea state after a server restart',
   assert.ok(restored.storm < savedStorm && savedStorm - restored.storm < .01, 'Rejoining resumes gradual clearing rather than rebuilding the storm');
 });
 
+test('a passing exploration front resumes its weather clock and forecast after restart', async t => {
+  const f = await fixture(t), a = await f.start(), { room } = await a.post('');
+  const p = await a.post(`/${room}/join`, { name: 'Mira' }), w = a.rooms.get(room).world;
+  w.mission = 'return'; w.cargo.recovered = true; w.storm = .85;
+  assert.equal((await a.post(`/${room}/action`, { action: 'deliver' }, p.token)).ok, true);
+  w.time = w.explorationWeather.time + 560; w.storm = stormAfter(w);
+  await a.stop(); const b = await f.start(), restored = b.rooms.get(room).world;
+  assert.deepEqual(restored.explorationWeather, w.explorationWeather); assert.equal(restored.storm, w.storm);
+  assert.ok(restored.storm > .5); assert.equal(stormAfter(restored, 200), stormAfter(w, 200));
+  const time = restored.time; await new Promise(r => setTimeout(r, 150)); assert.equal(restored.time, time);
+  await b.post(`/${room}/join`, { token: p.token, resume: true });
+  await new Promise(r => setTimeout(r, 150)); assert.ok(restored.time > time); assert.deepEqual(restored.explorationWeather, w.explorationWeather);
+});
+
 test('diver position and partial survey survive; inactive identities are kept while space remains', async t => {
   const f = await fixture(t), a = await f.start(), { room } = await a.post('');
   const p = await a.post(`/${room}/join`, { name: 'Mira' }), w = a.rooms.get(room).world;
   // Keep the saved diver above terrain even when a simulation tick runs while
   // the checkpoint is being written. A buried fixture gets clamped on resume.
   const position = { x: 30, y: oceanFloor(30, 40, RECIPE) + 6, z: 40 };
+  assert.equal((await a.post(`/${room}/action`, { action: 'dive' }, p.token)).ok, true);
   Object.assign(w.players[p.id], { mode: 'diver', ...position });
   w.surveys.reef = { seconds: 3, completedAt: null, active: 1, contributors: [{ id: p.id, name: 'Mira' }] };
   await a.post(`/${room}/leave`, {}, p.token); a.rooms.get(room).departed.set(p.id, Date.now() - 150_000);
@@ -105,6 +190,11 @@ test('diver position and partial survey survive; inactive identities are kept wh
   assert.equal(restored.id, p.id);
   const { x, y, z } = restored.state.players[p.id]; assert.deepEqual({ x, y, z }, position);
   assert.equal(restored.state.surveys.reef.seconds, 3); assert.equal(restored.state.surveys.reef.active, 0);
+  assert.deepEqual(restored.state.players[p.id].diveRecord, w.players[p.id].diveRecord, 'Active dive timing survives restart');
+  assert.equal((await b.post(`/${room}/action`, { action: 'rescue' }, p.token)).ok, true);
+  const finished = b.rooms.get(room).world.diveRecords;
+  assert.equal(finished.length, 1); assert.equal(finished[0].assisted, true);
+  await b.stop(); const c = await f.start(); assert.deepEqual(c.rooms.get(room).world.diveRecords, finished);
 });
 
 test('failed disk writes keep the crew connected and leave the last valid save intact', async t => {

@@ -5,14 +5,20 @@ import { createServer } from 'vite';
 import { createGameServer } from '../server/index.mjs';
 import * as simulation from '../src/game/Simulation.js';
 import { oceanFloor } from '../src/underwater/OceanDomain.js';
+import { SALVAGE_SITES } from '../src/game/SalvageSites.js';
 
-const tag = process.argv[2] || 'after', floor = oceanFloor(simulation.WRECK.x, simulation.WRECK.z, simulation.RECIPE);
-const app = createGameServer({ ...simulation, createWorld() { const w = simulation.createWorld(); Object.assign(w.ship, { x: w.cargo.x, z: w.cargo.z, anchor: true }); w.mission = 'dive'; return w; },
-  addPlayer(w, id, name) { const p = simulation.addPlayer(w, id, name); Object.assign(p, { mode: 'diver', x: simulation.WRECK.x + 14, y: floor + 9, z: simulation.WRECK.z - 17 }); return p; } });
+const tag = process.argv[2] || 'after', salvage = SALVAGE_SITES.find(s => s.id === (process.argv[3] || 'reef'));
+assert.ok(salvage, 'Choose reef, west or east');
+const WRECK = salvage.wreck, floor = oceanFloor(WRECK.x, WRECK.z, simulation.RECIPE);
+const app = createGameServer({ ...simulation, createWorld() {
+  const w = simulation.createWorld();
+  if (salvage.id !== 'reef') { w.contract = { site: salvage.id, number: 2, startedAt: 0 }; w.locations.wreck = { ...WRECK }; w.cargo = { ...salvage.cargo, initialY: salvage.cargo.y, attached: false, recovered: false }; }
+  Object.assign(w.ship, { x: w.cargo.x, z: w.cargo.z, anchor: true }); w.mission = 'dive'; return w;
+}, addPlayer(w, id, name) { const p = simulation.addPlayer(w, id, name); Object.assign(p, { mode: 'diver', x: WRECK.x + 14, y: floor + 9, z: WRECK.z - 17 }); return p; } });
 app.server.listen(0, '127.0.0.1'); await new Promise(r => app.server.once('listening', r));
 const vite = await createServer({ logLevel: 'error', server: { host: '127.0.0.1', port: 0, proxy: { '/api': `http://127.0.0.1:${app.server.address().port}` } } }); await vite.listen();
 const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--use-angle=d3d11', '--ignore-gpu-blocklist'], defaultViewport: { width: 1280, height: 800 } });
-const p = await browser.newPage(), errors = [], out = `tools/shots/wreck-${tag}`; await fs.mkdir(out, { recursive: true });
+const p = await browser.newPage(), errors = [], out = `tools/shots/wreck-${tag}${salvage.id === 'reef' ? '' : `-${salvage.id}`}`; await fs.mkdir(out, { recursive: true });
 p.on('pageerror', e => errors.push(e.message)); p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 const settle = () => p.evaluate(async () => { for (let i = 0; i < 20; i++) await new Promise(requestAnimationFrame); });
 try {
@@ -24,15 +30,15 @@ try {
     const a = window.__app, g = a.game, fixed = structuredClone(g.state); fixed.time = 20; window.wreckFixture = fixed;
     g.net.interpolated = () => fixed; g.yaw = Math.atan2(target.x - a.camera.position.x, target.z - a.camera.position.z); g.pitch = -.3; g.root.style.visibility = 'hidden';
     const before = a.beforeUpdate; a.beforeUpdate = (scaled, dt) => { g.state = fixed; before(scaled, dt); if (window.wreckSun != null) { a.weather.set({ sunElevation: window.wreckSun }, true); a.weather.update(0); } };
-  }, simulation.WRECK);
+  }, WRECK);
   await settle(); await p.screenshot({ path: `${out}/01-approach-day.png` });
   await p.evaluate(() => { window.wreckSun = .08; }); await settle(); await p.screenshot({ path: `${out}/02-approach-dusk.png` });
   await p.evaluate(() => { window.wreckSun = null; window.wreckFixture.storm = .85; }); await settle(); await p.screenshot({ path: `${out}/03-approach-storm.png` });
-  await p.evaluate(({ x, y, z }) => { const g = window.__app.game, s = window.wreckFixture.players[g.net.id]; window.wreckFixture.storm = 0; Object.assign(s, { x: x + 4, y: y + 4, z: z - 7 }); g.yaw = -.6; g.pitch = -.35; g.cameraSnap = true; g.diveLight.mode = 'on'; }, { ...simulation.WRECK, y: floor });
+  await p.evaluate(({ x, y, z }) => { const g = window.__app.game, s = window.wreckFixture.players[g.net.id]; window.wreckFixture.storm = 0; Object.assign(s, { x: x + 4, y: y + 4, z: z - 7 }); g.yaw = -.6; g.pitch = -.35; g.cameraSnap = true; g.diveLight.mode = 'on'; }, { ...WRECK, y: floor });
   await settle(); await p.screenshot({ path: `${out}/04-interior.png` });
-  await p.evaluate(({ x, y, z }) => { const g = window.__app.game, s = window.wreckFixture.players[g.net.id]; Object.assign(s, { x: x + 28, y: y + 22, z: z - 32 }); g.yaw = -.72; g.pitch = -.45; g.cameraSnap = true; }, { ...simulation.WRECK, y: floor });
+  await p.evaluate(({ x, y, z }) => { const g = window.__app.game, s = window.wreckFixture.players[g.net.id]; Object.assign(s, { x: x + 28, y: y + 22, z: z - 32 }); g.yaw = -.72; g.pitch = -.45; g.cameraSnap = true; }, { ...WRECK, y: floor });
   await settle(); await p.screenshot({ path: `${out}/05-wide.png` });
-  await p.evaluate(({ x, y, z }) => { const g = window.__app.game, s = window.wreckFixture.players[g.net.id]; Object.assign(s, { x: x + 20, y: y + 6, z: z + 6 }); g.yaw = -1.85; g.pitch = -.22; g.cameraSnap = true; }, { ...simulation.WRECK, y: floor });
+  await p.evaluate(({ x, y, z }) => { const g = window.__app.game, s = window.wreckFixture.players[g.net.id]; Object.assign(s, { x: x + 20, y: y + 6, z: z + 6 }); g.yaw = -1.85; g.pitch = -.22; g.cameraSnap = true; }, { ...WRECK, y: floor });
   await settle(); await p.screenshot({ path: `${out}/06-mooring.png` });
   const result = await p.evaluate(async () => {
     const a = window.__app, m = a.game.models, geometry = { meshes: 0, triangles: 0, vertices: 0 };

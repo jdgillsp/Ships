@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mesh, box, bar, hull, batchStatic } from './VesselModels.js';
-import { WRECK, RECIPE } from './Simulation.js';
+import { RECIPE } from './Simulation.js';
 import { oceanFloor } from '../underwater/OceanDomain.js';
 
 const iron = '#77674c', edge = '#9a8d68', dark = '#414d45', crust = '#7e8968';
@@ -12,7 +12,7 @@ function ring(g, radius, thickness, x, y, z, color = iron) {
   return mesh(g, new THREE.TorusGeometry(radius, thickness, 6, 20), color, x, y, z, 0, 'rust');
 }
 
-export function wreckSite() {
+export function wreckSite(WRECK = { x: -140, z: 245 }) {
   const site = new THREE.Group(); site.name = 'Research wreck site'; site.position.set(WRECK.x, 0, WRECK.z);
   const ship = new THREE.Group(); ship.name = 'Broken research hull';
   ship.position.y = oceanFloor(WRECK.x, WRECK.z, RECIPE) + .3; ship.rotation.set(.08, .6, .2); site.add(ship);
@@ -69,11 +69,11 @@ export function wreckSite() {
   for (const [x, z, angle, size] of [[-7, -3, .4, 2.3], [-5, -7, 1.2, 1.4], [6, -6, -.5, 1.7], [-7, 4, .1, 1.3]]) {
     const patch = new THREE.Group(), wx = WRECK.x + x, wz = WRECK.z + z;
     patch.position.set(x, oceanFloor(wx, wz, RECIPE), z); patch.rotateY(angle); site.add(patch);
-    box(patch, size, .06, size * 1.5, iron, 0, 0, 0, 'rust');
-    for (const xx of [-.35, .35]) box(patch, .07, .1, size * 1.4, edge, xx * size, .07, 0, 'rust');
+    const across = Math.ceil(size / .3), along = Math.ceil(size * 1.5 / .3);
+    mesh(patch, new THREE.BoxGeometry(size, .06, size * 1.5, across, 1, along), iron, 0, 0, 0, 0, 'rust');
+    for (const xx of [-.35, .35]) mesh(patch, new THREE.BoxGeometry(.07, .1, size * 1.4, 1, 1, along), edge, xx * size, .07, 0, 0, 'rust');
     patch.updateWorldMatrix(true, true);
-    // Conform each vertex rather than approximating a curved sand ripple with
-    // one tangent plane, which can leave the corners visibly floating.
+    // Subdivided faces follow the curved sand between the corners as well.
     patch.traverse(o => { if (!o.isMesh) return; const positions = o.geometry.attributes.position, v = new THREE.Vector3();
       for (let i = 0; i < positions.count; i++) { v.fromBufferAttribute(positions, i); const height = v.y + o.position.y + .025; o.localToWorld(v); v.y = oceanFloor(v.x, v.z, RECIPE) + height; o.worldToLocal(v); positions.setXYZ(i, v.x, v.y, v.z); }
       positions.needsUpdate = true; o.geometry.computeVertexNormals();

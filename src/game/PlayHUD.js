@@ -5,10 +5,17 @@ import { PlayerHelp } from './PlayerHelp.js';
 import { nearbyDeckStation } from './DeckInteraction.js';
 import { distance } from './Simulation.js';
 import { anchorStatus } from './Anchoring.js';
+import { seabedReading } from './DepthSounder.js';
+import { diveReturnPlan } from './DiveReturn.js';
+import { planDuration } from './WeatherOutlook.js';
 
 export class PlayHUD {
   constructor(game) {
     this.game = game; this.open = false;
+    const sounder = document.createElement('p'); sounder.id = 'seabed-sounder';
+    sounder.innerHTML = '<span id="sounder-label">Seabed depth</span> · <strong id="sounder-value">—</strong>';
+    sounder.title = 'Distance to the terrain beneath Kestrel or the diver. This does not measure clearance from wrecks, rocks or equipment.';
+    game.root.querySelector('.instrument-row').after(sounder);
     this.readout = document.createElement('p'); this.readout.id = 'play-readout';
     game.root.querySelector('.ship-console').prepend(this.readout);
     this.scout = document.createElement('button'); this.scout.id = 'scout-ahead'; this.scout.dataset.action = 'lookout';
@@ -88,6 +95,10 @@ export class PlayHUD {
       const origin = p.mode === 'diver' ? p : s;
       const bearing = target ? ((Math.atan2(-(target.x - origin.x), target.z - origin.z) * 180 / Math.PI + 360) % 360) : 0;
       this.glance.textContent = target ? `${target.label} · ${Math.round(objectiveDistance(world, g.net.id, target))} m · ${Math.round(bearing).toString().padStart(3, '0')}° — ${courseTarget(world, g.net.id)?.hint || missionGuidance(world, g.net.id)?.text || target.hint}` : 'Archive delivered. Open the chart to choose another dive site.';
+      const sounding = seabedReading(world, g.net.id);
+      if (sounding) this.glance.textContent += ` · ${g.net.ready ? sounding.text : 'Seabed reading paused while reconnecting'}.`;
+      const returning = g.net.ready && diveReturnPlan(world, g.net.id);
+      if (returning) this.glance.textContent += ` Return via surface: about ${planDuration(returning.total)} to Kestrel’s current position${returning.moving ? ' (ship moving)' : ''}.`;
     }
     this.scout.hidden = g.lookout || g.contextAction() !== 'lookout'; this.scout.disabled = !g.net.ready;
     const recoveringHere = p.mode !== 'diver' && world.cargo.attached && !world.cargo.recovered && s.anchor && distance(s, world.cargo) < 34;
@@ -104,7 +115,7 @@ export class PlayHUD {
     if (g.lookout) text = '';
     if (p.mode === 'deck' && performance.now() < (g.boardingUntil || 0)) text = g.touch?.media.matches ? 'Back aboard · thumbstick to walk away from the ladder' : 'Back aboard · WASD to walk away from the ladder';
     const survey = surveyStatus(world, g.net.id);
-    if (survey?.eligible && !survey.complete) text += ` · Survey ${Math.floor(survey.progress * 100)}%`;
+    if (survey?.eligible && !survey.complete) text += ` · ${survey.site.name} · Survey ${Math.floor(survey.progress * 100)}%`;
     this.readout.textContent = text; this.readout.hidden = !text;
   }
 }

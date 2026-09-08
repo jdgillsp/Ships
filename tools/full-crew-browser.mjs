@@ -65,6 +65,8 @@ try {
   for (const width of [1280, 600, 390]) {
     await page.setViewport({ width, height: 800 });
     await page.click('#crew-activities'); await page.waitForSelector('#crew-activities-dialog[open]');
+    await page.waitForFunction(() => document.querySelector('#activities-crew').textContent.includes('elapsed'));
+    assert.match(await page.$eval('#activities-crew', e => e.textContent), /m deepest/);
     const layout = await page.$eval('#crew-activities-dialog', e => {
       const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, scrollWidth: e.scrollWidth, clientWidth: e.clientWidth, text: e.textContent };
     });

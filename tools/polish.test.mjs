@@ -1,4 +1,16 @@
 import { RADIO_STATION } from '../src/game/RadioStation.js';
+import { LOGBOOK_STATION } from '../src/game/LogbookStation.js';
+
+test('the ship logbook has a local deck interaction, separate from machinery and diving', () => {
+  const w = createWorld(), p = addPlayer(w, 'reader');
+  Object.assign(p, { deckX: LOGBOOK_STATION.x, deckZ: -.7 });
+  assert.equal(nearbyDeckStation(w, p.id).action, 'logbook');
+  w.cargo.recovered = true;
+  assert.equal(nearbyDeckStation(w, p.id).action, 'logbook');
+  p.mode = 'diver'; assert.equal(nearbyDeckStation(w, p.id), null);
+  p.mode = 'deck'; p.deckZ = -2; assert.notEqual(nearbyDeckStation(w, p.id)?.station, 'logbook');
+  p.deckX = RADIO_STATION.x; p.deckZ = -.7; assert.equal(nearbyDeckStation(w, p.id).station, 'radio');
+});
 import { advanceAnchor, anchorDeployment, anchorStatus } from '../src/game/Anchoring.js';
 import test from 'node:test';
 import { DiveSplashTrail, splashPose, SPLASH_LIMIT } from '../src/game/DiveSplashTrail.js';
@@ -388,7 +400,7 @@ test('survey briefings follow the plotted habitat and reveal only eligible activ
   setInput(w, 'a', { survey: true }); assert.equal(snapshot(w).players.a.surveying, false, 'A logged site cannot keep someone scanning');
   const logged = crewActivities(snapshot(w), 'b').jobs.find(j => j.id === 'survey');
   assert.equal(logged.action, 'chart'); assert.match(logged.detail, /Logged by Rowan/);
-  act(w, 'b', 'course', { destination: null }); assert.equal(crewActivities(w, 'b').jobs.some(j => j.id === 'survey'), false);
+  act(w, 'b', 'course', { destination: null }); assert.equal(crewActivities(w, 'b').jobs.some(j => j.id === 'survey'), true, 'Local survey history remains available without a course');
 });
 
 test('exhaled bubbles retain their world positions and do not depend on rendering cadence', () => {
@@ -437,20 +449,20 @@ test('nearby divers share a habitat survey, retain partial progress and record i
   scan(40); assert.ok(Math.abs(w.surveys.reef.seconds - 4) < 1e-9, 'Two divers supply four seconds of work in two seconds');
   assert.equal(w.surveys.reef.completedAt, null); assert.equal(w.surveys.reef.active, 2);
   act(w, 'a', 'course', { destination: 'kelp' }); scan(20);
-  assert.equal(w.surveys.reef.active, 0); assert.equal(w.surveys.kelp, undefined, 'A course change cannot scan another habitat remotely');
+  assert.equal(w.surveys.reef.active, 2, 'Divers keep surveying their actual location when the captain changes course'); assert.equal(w.surveys.kelp, undefined, 'A course change cannot scan another habitat remotely');
   act(w, 'a', 'course', { destination: 'reef' }); scan(40);
   assert.equal(w.surveys.reef.seconds, SURVEY_SECONDS); assert.equal(surveyStatus(w, 'a').complete, true);
   assert.deepEqual(w.surveys.reef.contributors, [{ id: 'a', name: 'Rowan' }, { id: 'b', name: 'Mira' }]);
   const record = structuredClone(w.surveys.reef), revision = w.revision;
   scan(100); assert.deepEqual(w.surveys.reef, record); assert.equal(w.revision, revision, 'Holding scan never awards a completed site twice');
   assert.match(w.log, /Rowan & Mira/); assert.equal(w.mission, 'outbound'); assert.equal(w.cargo.attached, false);
-  act(w, 'a', 'course', { destination: null }); assert.equal(surveyStatus(w, 'a'), null);
+  act(w, 'a', 'course', { destination: null }); assert.equal(surveyStatus(w, 'a').site.id, 'reef');
   assert.deepEqual(snapshot(w).surveys.reef, record, 'Mission guidance retains the expedition survey log');
 });
 
 test('survey validation requires deliberate live input at the actual dive site and depth', () => {
   const site = voyageSites().find(s => s.id === 'reef');
-  for (const invalid of ['aboard', 'far', 'above', 'surface', 'disconnected', 'string', 'number', 'no-course']) {
+  for (const invalid of ['aboard', 'far', 'above', 'surface', 'disconnected', 'string', 'number']) {
     const w = createWorld(), p = addPlayer(w, 'a');
     Object.assign(p, { mode: 'diver', x: site.x, y: site.y, z: site.z });
     act(w, 'a', 'course', { destination: 'reef' });
@@ -460,7 +472,6 @@ test('survey validation requires deliberate live input at the actual dive site a
     if (invalid === 'surface') p.y = 0;
     setInput(w, 'a', { survey: invalid === 'string' ? 'true' : invalid === 'number' ? 1 : true });
     if (invalid === 'disconnected') p.connected = false;
-    if (invalid === 'no-course') act(w, 'a', 'course', { destination: null });
     tick(w); assert.deepEqual(w.surveys, {}, invalid);
   }
   const w = createWorld(), p = addPlayer(w, 'a');

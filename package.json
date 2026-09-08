@@ -68,6 +68,7 @@
     "test:deck-camera:browser": "node tools/deck-camera-browser.mjs",
     "test:camera-memory:browser": "node tools/camera-memory-browser.mjs",
     "test:deck-radio:browser": "node tools/deck-radio-browser.mjs",
+    "test:deck-logbook:browser": "node tools/deck-logbook-browser.mjs",
     "test:radio-sound:browser": "node tools/radio-sound-browser.mjs",
     "test:engine-sound:browser": "node tools/engine-sound-browser.mjs",
     "test:lookout-access:browser": "node tools/lookout-access-browser.mjs",
@@ -75,6 +76,17 @@
     "test:signal-occlusion:browser": "node tools/signal-occlusion-browser.mjs",
     "test:storm-clearing:browser": "node tools/storm-clearing-browser.mjs",
     "test:delivery-log:browser": "node tools/delivery-log-browser.mjs",
+    "test:voyage-log:browser": "node tools/voyage-log-browser.mjs",
+    "test:saved-places:browser": "node tools/saved-places-browser.mjs",
+    "test:place-notes:browser": "node tools/place-notes-browser.mjs",
+    "test:weather-planner:browser": "node tools/weather-planner-browser.mjs",
+    "test:hull-paint:browser": "node tools/hull-paint-browser.mjs",
+    "test:wreck-discoveries:browser": "node tools/wreck-discoveries-browser.mjs",
+    "test:crew-sightings:browser": "node tools/crew-sightings-browser.mjs",
+    "test:depth-sounder:browser": "node tools/depth-sounder-browser.mjs",
+    "test:research:browser": "node tools/research-browser.mjs",
+    "test:dive-return:browser": "node tools/dive-return-browser.mjs",
+    "test:salvage-voyages:browser": "node tools/salvage-voyages-browser.mjs",
     "test:journal-notebook:browser": "node tools/journal-notebook-browser.mjs",
     "test:deck-interaction:browser": "node tools/deck-interaction-browser.mjs",
     "test:boarding:browser": "node tools/boarding-browser.mjs",
@@ -133,7 +145,11 @@
     "test": "node --test tools/game.test.mjs tools/polish.test.mjs tools/persistence.test.mjs tools/quality-work.test.mjs tools/journal-photos.test.mjs tools/voyage-map.test.mjs tools/invite.test.mjs && node tools/quality-sim.mjs && node tools/underwater-sim.mjs && node tools/connected-ocean-sim.mjs && node tools/fauna-sim.mjs && node tools/animal-motion-sim.mjs && node tools/biome-sim.mjs",
     "smoke": "node tools/smoke.mjs",
     "test:invite:browser": "node tools/crew-invite-browser.mjs",
-    "test:ui:browser": "node tools/ui-uplift-browser.mjs"
+    "test:ui:browser": "node tools/ui-uplift-browser.mjs",
+    "test:inscription:browser": "node tools/inscription-browser.mjs",
+    "test:helm-sounder:browser": "node tools/helm-sounder-browser.mjs",
+    "test:helm-course:browser": "node tools/helm-course-browser.mjs",
+    "test:pickup-course:browser": "node tools/pickup-course-browser.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"

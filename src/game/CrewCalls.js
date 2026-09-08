@@ -1,12 +1,21 @@
 import { dialogFocus } from './DialogFocus.js';
+import { weatherOutlook } from './WeatherOutlook.js';
 
 export const CALL_LIFETIME = 25;
 export const CALL_COOLDOWN = 3;
-export const CALLS = Object.freeze({ slow: 'Slow down, please', anchor: 'Hold position, please', ready: 'Ready to dive', pickup: 'Need pickup', winch: 'Need a winch operator', thanks: 'Thanks, crew' });
+export const CALLS = Object.freeze({ slow: 'Slow down, please', anchor: 'Hold position, please', ready: 'Ready to dive', recall: 'Return aboard, please', pickup: 'Need pickup', winch: 'Need a winch operator', weather: 'Share weather outlook', thanks: 'Thanks, crew' });
+
+export function diversOut(w) { return Object.values(w.players).filter(p => p.connected && p.mode === 'diver').length; }
+export function callReplies(call) { return call.kind === 'recall' ? (call.returning || []) : (call.acknowledgedBy ? [call.acknowledgedBy] : []); }
+export function canReply(w, id, call) {
+  return !!w.players[id]?.connected && !!w.players[call.owner]?.connected && call.expires > w.time && call.owner !== id && call.kind !== 'thanks' &&
+    (call.kind === 'recall' ? w.players[id].mode === 'diver' && !callReplies(call).includes(id) : !call.acknowledgedBy);
+}
 
 export function canCall(w, id, kind) {
   const p = w.players[id];
   return !!p?.connected && Object.hasOwn(CALLS, kind) && (kind !== 'pickup' || p.mode === 'diver') &&
+    (kind !== 'recall' || p.mode !== 'diver' && diversOut(w) > 0) &&
     (kind !== 'ready' || p.mode !== 'diver') && (kind !== 'winch' || (w.cargo.attached && !w.cargo.recovered));
 }
 export function sendCrewCall(w, id, kind) {
@@ -15,11 +24,19 @@ export function sendCrewCall(w, id, kind) {
   if (w.time - (p.lastCall ?? -Infinity) < CALL_COOLDOWN) return { ok: false, message: 'Wait a moment before calling again.' };
   p.lastCall = w.time; w.calls ??= {}; w.callSequence = (w.callSequence || 0) + 1;
   w.calls[id] = { id: w.callSequence, owner: id, kind, time: w.time, expires: w.time + CALL_LIFETIME, acknowledgedBy: null };
+  if (kind === 'weather') w.calls[id].outlook = weatherOutlook(w).text;
+  if (kind === 'recall') w.calls[id].returning = [];
   w.revision++; return { ok: true };
 }
 export function acknowledgeCrewCall(w, id, owner, callId) {
   const call = w.calls?.[owner];
   if (!w.players[id]?.connected || !w.players[owner]?.connected || !call || call.id !== callId || call.expires <= w.time || owner === id || call.kind === 'thanks') return { ok: false, message: 'That crew call is no longer available.' };
+  if (call.kind === 'recall') {
+    if (callReplies(call).includes(id)) return { ok: true };
+    if (!canReply(w, id, call)) return { ok: false, message: 'Only divers in the water can confirm they are returning.' };
+    call.returning ??= []; call.returning.push(id);
+    w.ackSequence = (w.ackSequence || 0) + 1; w.revision++; return { ok: true };
+  }
   if (call.acknowledgedBy) return call.acknowledgedBy === id ? { ok: true } : { ok: false, message: 'A crewmate has already acknowledged this call.' };
   call.acknowledgedBy = id; w.ackSequence = (w.ackSequence || 0) + 1; w.revision++; return { ok: true };
 }
@@ -38,7 +55,8 @@ export class CrewRadio {
     this.banner = document.createElement('div'); this.banner.id = 'crew-call-banner'; this.banner.hidden = true;
     this.notice = document.createElement('p'); this.notice.setAttribute('role', 'status'); this.notice.setAttribute('aria-live', 'polite');
     this.ack = document.createElement('button'); this.ack.id = 'ack-crew-call'; this.ack.textContent = 'On it';
-    this.banner.append(this.notice, this.ack); game.root.querySelector('.ship-console').prepend(this.banner);
+    this.pickup = document.createElement('button'); this.pickup.id = 'set-pickup-course'; this.pickup.textContent = 'Set shared pickup course'; this.pickup.hidden = true;
+    this.banner.append(this.notice, this.ack, this.pickup); game.root.querySelector('.ship-console').prepend(this.banner);
     this.dialog = document.createElement('dialog'); this.dialog.id = 'crew-radio-dialog'; this.dialog.setAttribute('aria-labelledby', 'crew-radio-title');
     this.dialog.innerHTML = '<div class="radio-heading"><div><p class="radio-plate">KESTREL / SHIP RADIO</p><h2 id="crew-radio-title">Crew radio</h2></div><button id="close-radio">Close</button></div><div class="radio-channel"><span>CREW CHANNEL</span><strong>01</strong></div><p>Choose a call. Your crew can reply “On it” to confirm.</p><div class="radio-choices"></div><div id="radio-inbox"></div><p id="radio-status" role="status"></p>';
     game.root.append(this.dialog); this.$ = id => this.dialog.querySelector(`#${id}`); this.choices = new Map();
@@ -72,22 +90,35 @@ export class CrewRadio {
   }
   description(w, call) {
     const sender = call.owner === this.game.net.id ? 'You' : w.players[call.owner]?.name || 'Crew';
-    const reply = call.acknowledgedBy ? `${w.players[call.acknowledgedBy]?.name || 'A crewmate'}: On it` : call.owner === this.game.net.id ? 'Sent to your crew' : call.kind === 'pickup' ? 'On it also shows their live position' : '';
-    return `${sender}: ${CALLS[call.kind]}${reply ? ` · ${reply}` : ''}`;
+    const replies = callReplies(call);
+    const reply = replies.length ? `${replies.map(id => w.players[id]?.name || 'A crewmate').join(' & ')}: On it` : call.owner === this.game.net.id ? 'Sent to your crew' : call.kind === 'pickup' ? 'On it also shows their live position' : '';
+    const remaining = call.kind === 'recall' ? ` · ${diversOut(w)} ${diversOut(w) === 1 ? 'diver' : 'divers'} still in the water` : '';
+    return `${sender}: ${call.kind === 'weather' && call.outlook ? `Weather at call time — ${call.outlook}` : CALLS[call.kind]}${reply ? ` · ${reply}` : ''}${remaining}`;
   }
   updateUI(w) {
     const g = this.game, active = activeCrewCalls(w), peers = Object.values(w.players).filter(p => p.connected && p.id !== g.net.id);
     this.stationButton.hidden = g.contextAction() !== 'radio'; this.stationButton.disabled = !g.net.ready;
     this.button.hidden = !w.calls || peers.length === 0; this.button.disabled = !g.net.ready;
-    const newest = active.find(c => c.owner !== g.net.id && !c.acknowledgedBy) || active[0];
+    const newest = active.find(c => canReply(w, g.net.id, c)) || active[0];
     // Retain a request while the player reaches for its acknowledgement.
-    let shown = active.find(c => c.id === this.shownId && !c.acknowledgedBy && c.owner !== g.net.id) || newest;
+    let shown = active.find(c => c.id === this.shownId && canReply(w, g.net.id, c)) || newest;
     this.shownId = shown?.id; this.banner.hidden = !shown;
     if (shown) {
       const text = this.description(w, shown); if (this.notice.textContent !== text) this.notice.textContent = text;
-      this.ack.hidden = shown.owner === g.net.id || !!shown.acknowledgedBy || shown.kind === 'thanks';
+      this.ack.hidden = !canReply(w, g.net.id, shown);
       this.ack.disabled = !g.net.ready || this.acking; this.ack.onclick = () => this.acknowledge(shown);
     }
+    const pickup = shown?.kind === 'pickup' && w.players[shown.owner]?.connected && w.players[shown.owner]?.mode === 'diver' && w.players[g.net.id]?.mode !== 'diver';
+    this.pickup.hidden = !pickup;
+    this.pickup.disabled = !g.net.ready || !!this.routing || w.pickup?.diver === shown?.owner;
+    this.pickup.textContent = w.pickup?.diver === shown?.owner ? 'Pickup course set' : 'Set shared pickup course';
+    this.pickup.onclick = async () => {
+      if (!pickup || this.routing || !g.net.ready) return;
+      this.routing = true; this.updateUI(g.state);
+      try { await g.net.action('pickupCourse', { diver: shown.owner }); g.crewTracking.id = ''; }
+      catch (e) { g.message = e.message; g.messageUntil = performance.now() + 4000; }
+      finally { this.routing = false; this.updateUI(g.state); }
+    };
     if (!this.dialog.open) return;
     const wait = w.time - (w.players[g.net.id]?.lastCall ?? -Infinity) < CALL_COOLDOWN;
     this.$('radio-status').textContent = this.error || (!g.net.ready ? 'Waiting for the connection…' : !peers.length ? 'You’re sailing solo. Calls become available when a crewmate joins.' : this.pending ? 'Calling your crew…' : wait ? 'Call sent. Wait a moment before calling again.' : '');
@@ -99,7 +130,7 @@ export class CrewRadio {
         const root = document.createElement('div'), text = document.createElement('p'), button = document.createElement('button'); root.className = 'radio-message'; button.textContent = 'On it'; button.onclick = () => this.acknowledge(call); root.append(text, button); this.$('radio-inbox').prepend(root);
         row = { root, text, button }; this.rows.set(call.id, row);
       }
-      row.text.textContent = this.description(w, call); row.button.hidden = call.owner === g.net.id || !!call.acknowledgedBy || call.kind === 'thanks'; row.button.disabled = !g.net.ready || this.acking;
+      row.text.textContent = this.description(w, call); row.button.hidden = !canReply(w, g.net.id, call); row.button.disabled = !g.net.ready || this.acking;
     }
   }
 }

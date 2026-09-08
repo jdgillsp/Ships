@@ -23,7 +23,7 @@ try{
  const studyLayouts=[];
  const studyRect=()=>p.$eval('#crew-naturalist',e=>{const r=e.getBoundingClientRect();return {width:innerWidth,left:r.left,right:r.right,bottom:r.bottom,height:r.height};});
  assert.equal(await p.$eval('#study-notes',e=>e.hidden),true);
- const collapsed=await studyRect();assert.ok(collapsed.height<260,'The default card stays compact');studyLayouts.push(collapsed);
+ const collapsed=await studyRect();assert.ok(collapsed.height<260,`The default card stays compact (${collapsed.height}px)`);studyLayouts.push(collapsed);
  await p.screenshot({path:`${out}/06-quiet-study.png`});
  const notesPose=await p.evaluate(()=>{const g=window.__app.game,s=g.state.players[g.net.id];return [s.x,s.y,s.z];});
  await p.focus('#toggle-study-notes');await p.keyboard.press('Space');

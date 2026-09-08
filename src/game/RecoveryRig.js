@@ -14,7 +14,8 @@ export const GANTRY_SUPPORTS = [-2.4, 2.4].flatMap(x => [
 // Use authoritative haul distance, not local elapsed time: spectators, paused
 // lifts and reconnecting crew must all see the same drum and sheave positions.
 export function recoveryRigState(w) {
-  const lifted = w.cargo.recovered ? 2 - CRATE.y : w.cargo.attached ? Math.max(0, w.cargo.y - CRATE.y) : 0;
+  const start = w.cargo.initialY ?? CRATE.y;
+  const lifted = w.cargo.recovered ? 2 - start : w.cargo.attached ? Math.max(0, w.cargo.y - start) : 0;
   const lifting = w.cargo.attached && !w.cargo.recovered && !!w.winch && w.ship.anchor && distance(w.ship, w.cargo) < 34;
   return { drum: -lifted / .47, sheave: -lifted / .27, lever: lifting ? -.45 : 0,
     active: lifting || w.cargo.recovered, waiting: w.cargo.attached && !w.cargo.recovered && !lifting };

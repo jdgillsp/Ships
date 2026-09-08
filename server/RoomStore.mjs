@@ -1,6 +1,19 @@
 import { mkdir, readFile, writeFile, rename, copyFile, stat, open } from 'node:fs/promises';
 import path from 'node:path';
-import { voyageSites } from '../src/game/VoyageSites.js';
+import { voyageSites, voyageDestinations } from '../src/game/VoyageSites.js';
+import { validPlaces } from '../src/game/SavedPlaces.js';
+import { validSalvageState } from '../src/game/SalvageVoyages.js';
+import { validMilestones } from '../src/game/VoyageLog.js';
+import { validCrewLog } from '../src/game/CrewLog.js';
+import { validDiveRecords } from '../src/game/DiveRecords.js';
+import { validVoyageLight } from '../src/game/VoyageLight.js';
+import { validPickup, validPickupRecords } from '../src/game/PickupCourse.js';
+import { validInscription } from '../src/game/CrewInscription.js';
+import { HULL_PAINTS } from '../src/game/HullPaint.js';
+import { validWreckDiscoveries } from '../src/game/WreckDiscoveries.js';
+import { validSightings } from '../src/game/CrewSightings.js';
+import { validResearch } from '../src/game/ResearchVoyages.js';
+import { validExplorationWeather } from '../src/game/ExplorationWeather.js';
 
 export const RETENTION_MS = 30 * 24 * 60 * 60_000;
 
@@ -30,13 +43,28 @@ export class RoomStore {
       if (w.delivery != null && (!Number.isFinite(w.delivery.time) || w.delivery.time < 0 || w.delivery.time > w.time ||
         typeof w.delivery.receivedFrom !== 'string' || w.delivery.receivedFrom.length > 20 || !Array.isArray(w.delivery.crew) ||
         w.delivery.crew.length < 1 || w.delivery.crew.length > 4 || w.delivery.crew.some(name => typeof name !== 'string' || name.length > 20))) throw new Error('Invalid saved delivery log.');
+      if (!validMilestones(w)) throw new Error('Invalid saved voyage milestones.');
+      if (!validCrewLog(w)) throw new Error('Invalid saved crew entries.');
+      if (!validDiveRecords(w)) throw new Error('Invalid saved dive records.');
+      if (!validWreckDiscoveries(w)) throw new Error('Invalid saved wreck discoveries.');
+      if (!validSightings(w)) throw new Error('Invalid saved crew sightings.');
+      if (!validResearch(w)) throw new Error('Invalid saved research request.');
+      if (!validExplorationWeather(w)) throw new Error('Invalid saved exploration weather.');
+      if (w.ship.paint !== undefined && !Object.hasOwn(HULL_PAINTS, w.ship.paint)) throw new Error('Invalid saved hull paint.');
+      if (!validInscription(w)) throw new Error('Invalid saved crew inscription.');
+      if (!validVoyageLight(w)) throw new Error('Invalid saved daylight clock.');
+      if (!validPickupRecords(w)) throw new Error('Invalid saved pickup history.');
+      if (!validPickup(w)) throw new Error('Invalid saved pickup course.');
+      if (!validPlaces(w)) throw new Error('Invalid saved places.');
+      if (!validSalvageState(w)) throw new Error('Invalid saved salvage voyage.');
+      if (w.delivery?.duration !== undefined && (!Number.isFinite(w.delivery.duration) || w.delivery.duration < 0 || w.delivery.duration > w.time)) throw new Error('Invalid delivery duration.');
       if (w.ship.propellerAngle !== undefined && !Number.isFinite(w.ship.propellerAngle)) throw new Error('Invalid saved propeller phase.');
       if (w.ship.anchorDrop !== undefined && (!Number.isFinite(w.ship.anchorDrop) || w.ship.anchorDrop < 0 || w.ship.anchorDrop > 1)) throw new Error('Invalid saved anchor deployment.');
       codes.add(room.code);
       for (const [id, p] of Object.entries(w.players)) if (id !== p.id || typeof p.name !== 'string' || p.name.length > 20 ||
         !['deck', 'helm', 'winch', 'diver'].includes(p.mode) || !finite(p, ['x', 'y', 'z', 'yaw', 'pitch', 'deckX', 'deckZ', 'deckYaw'])) throw new Error('Invalid saved crew member.');
       const sites = new Set(voyageSites({ seed: w.seed }).map(s => s.id));
-      if (w.course != null && (!sites.has(w.course.id) || typeof w.course.owner !== 'string')) throw new Error('Invalid saved course.');
+      if (w.course != null && (!voyageDestinations(w).some(s => s.id === w.course.id) || typeof w.course.owner !== 'string')) throw new Error('Invalid saved course.');
       if (!w.surveys || Array.isArray(w.surveys) || Object.entries(w.surveys).some(([id, s]) => !sites.has(id) || !s ||
         !Number.isFinite(s.seconds) || s.seconds < 0 || s.seconds > 8 || (s.completedAt !== null && !Number.isFinite(s.completedAt)) ||
         !Array.isArray(s.contributors) || s.contributors.length > 4 || s.contributors.some(p => !p || typeof p.id !== 'string' || typeof p.name !== 'string' || p.name.length > 20))) throw new Error('Invalid saved survey.');

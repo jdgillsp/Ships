@@ -25,6 +25,7 @@ export function createGameServer(simulation = defaultSimulation, options = {}) {
     for (const r of saved) {
       const room = { world: r.world, touched: r.touched, tokens: new Map(r.tokens), streams: new Map(), departed: new Map(r.departed || []) };
       room.world.surveys ??= {}; room.world.course ??= null; room.world.signals = {};
+      room.world.places ??= {};
       room.world.calls = {};
       for (const survey of Object.values(room.world.surveys)) survey.active = 0;
       for (const p of Object.values(room.world.players)) { disconnectPlayer(room.world, p.id); p.lastInput = room.world.time; if (!room.departed.has(p.id)) room.departed.set(p.id, Date.now()); }

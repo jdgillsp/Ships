@@ -40,11 +40,25 @@ try {
   await a.waitForFunction(id => window.__app.game.crewTracking.id === id, {}, diver);
   assert.equal(await a.evaluate(() => window.__app.game.lastMode), 'helm', 'Acknowledging pickup does not leave the helm or steer automatically');
   await a.screenshot({ path: `${out}/02-pickup-acknowledged.png` });
+  const c = await open('Kai', room); await c.keyboard.press('v');
+  await c.waitForFunction(() => window.__app.game.lastMode === 'diver');
+  await radio(a); await a.waitForSelector('#call-recall:not([disabled]):not([hidden])'); await a.click('#call-recall');
+  await b.waitForFunction(() => document.getElementById('crew-call-banner').textContent.includes('Return aboard, please'));
+  await b.bringToFront(); await b.click('#ack-crew-call');
+  await a.waitForFunction(() => document.getElementById('crew-call-banner').textContent.includes('Rowan: On it'));
+  assert.match(await a.$eval('#crew-call-banner', e => e.textContent), /2 divers still in the water/);
+  assert.equal(await b.evaluate(() => window.__app.game.lastMode), 'diver');
+  await c.bringToFront(); await c.waitForSelector('#ack-crew-call:not([hidden])'); await c.click('#ack-crew-call');
+  await a.waitForFunction(() => document.getElementById('crew-call-banner').textContent.includes('Rowan & Kai: On it'));
+  assert.equal(await c.$eval('#ack-crew-call', e => e.hidden), true);
+  await c.close();
+  await a.waitForFunction(() => document.getElementById('crew-call-banner').textContent.includes('1 diver still in the water') && !document.getElementById('crew-call-banner').textContent.includes('Kai'));
   for (const width of [600, 390]) {
     await a.setViewport({ width, height: 800 }); await sleep(250);
     const r = await a.evaluate(() => { const c = document.querySelector('.ship-console').getBoundingClientRect(), m = document.querySelector('.mission-panel').getBoundingClientRect(), b = document.getElementById('crew-call-banner').getBoundingClientRect(); return { consoleTop: c.top, missionBottom: m.bottom, left: b.left, right: b.right, bottom: c.bottom }; });
-    assert.ok(r.left >= 0 && r.right <= width && r.bottom <= 800 && r.consoleTop > r.missionBottom, 'Phone call banner stays clear of the mission');
-    await a.screenshot({ path: `${out}/03-banner-${width}.png` }); await radio(a);
+    await a.screenshot({ path: `${out}/03-banner-${width}.png` });
+    assert.ok(r.left >= 0 && r.right <= width && r.bottom <= 800 && r.consoleTop > r.missionBottom, `Phone call banner stays clear of the mission: ${JSON.stringify(r)}`);
+    await radio(a);
     const box = await a.$eval('#crew-radio-dialog', e => { const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, bottom: r.bottom, scroll: e.scrollWidth, client: e.clientWidth }; });
     assert.ok(box.left >= 0 && box.right <= width && box.bottom <= 800 && box.scroll <= box.client);
     await a.screenshot({ path: `${out}/04-menu-${width}.png` }); await a.keyboard.press('Escape');

@@ -13,6 +13,7 @@ export class CrewSignals {
     this.raycaster = new THREE.Raycaster(); this.center = new THREE.Vector2();
     this.deckInverse = new THREE.Matrix4(); this.deckEye = new THREE.Vector3(); this.deckTarget = new THREE.Vector3();
     this.button = document.createElement('button'); this.button.id = 'mark-location'; this.button.textContent = 'Mark view [G]';
+    this.button.title = 'Mark a place for the crew. Open the voyage chart with N to save it for another visit.';
     game.root.querySelector('.view-controls').append(this.button); this.button.onclick = () => this.send();
     secondaryTouchActivation(this.button);
     this.notice = document.createElement('p'); this.notice.id = 'crew-signal-note'; this.notice.setAttribute('aria-live', 'polite'); this.notice.hidden = true;
@@ -29,7 +30,7 @@ export class CrewSignals {
     const g = this.game, w = g.frameWorld || g.state, p = w?.players[g.net.id]; if (!p) return null;
     this.raycaster.setFromCamera(this.center, g.app.camera); this.raycaster.far = 600;
     const models = g.models;
-    const objects = [models.buoy, models.base, models.crate, models.wreck, ...models.crew.filter(o => o.visible)];
+    const objects = [models.buoy, models.base, models.crate, ...(models.wrecks || [models.wreck]), ...models.crew.filter(o => o.visible)];
     if (p.mode === 'diver') objects.push(models.ship);
     const hit = this.raycaster.intersectObjects(objects, true)[0];
     // The cutter is a useful target for a diver, but aboard it is foreground
@@ -67,7 +68,7 @@ export class CrewSignals {
     this.button.disabled = !this.game.net.ready || !!wait;
     this.button.textContent = wait ? 'Marked for crew' : 'Mark view [G]';
     const latest = this.active(w)[0]; this.notice.hidden = !latest;
-    if (latest) this.notice.textContent = `${w.players[latest.owner]?.name || 'Crew'} marked ${latest.label.toLowerCase()}`;
+    if (latest) this.notice.textContent = `${w.players[latest.owner]?.name || 'Crew'} marked ${latest.label.toLowerCase()} · N to save this place`;
   }
   update(w, visible) {
     const g = this.game, primary = g.objectiveMarker, active = [];

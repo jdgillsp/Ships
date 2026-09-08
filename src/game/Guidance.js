@@ -1,10 +1,46 @@
+import { pickupDiver } from './PickupCourse.js';
 import { BASE, WRECK, CRATE, distance, availableActions } from './Simulation.js';
+import { activeSalvage } from './SalvageVoyages.js';
+import { researchSite, researchReady, researchTarget, researchHarborReason } from './ResearchVoyages.js';
 
 export function missionGuidance(w, id) {
   const p = w.players[id]; if (!p) return null;
   const has = action => availableActions(w, id).includes(action);
   const step = (title, text, action = 'glance', button = 'Show direction') => ({ title, text, action, button });
   const aboard = p.mode !== 'diver', captain = w.players[w.ship.pilot];
+  const pickup = pickupDiver(w);
+  if (pickup) {
+    if (!aboard) return pickup.id === id ? step('Return to your pickup', 'The crew is following your position. Ascend and return alongside Kestrel.', has('board') ? 'board' : 'glance', has('board') ? 'Climb aboard' : 'Find Kestrel') : step(`Support ${pickup.name}’s return`, 'The ship is arranging a pickup. Keep track of your crewmate and return together.', 'glance', 'Show pickup direction');
+    if (distance(w.ship, pickup) >= 20) {
+      if (w.ship.anchor) return step(`Get underway for ${pickup.name}`, 'Raise anchor and follow the live pickup course. The expedition route is kept.', 'anchor', 'Raise anchor');
+      return step(`Reach ${pickup.name}`, 'Follow the green compass pointer toward the diver, then slow and hold for boarding.', has('helm') ? 'helm' : 'glance', has('helm') ? 'Take the helm' : 'Show pickup direction');
+    }
+    if (!w.ship.anchor) return step('Hold for the pickup', `Deploy the anchor and let Kestrel slow while ${pickup.name} returns.`, 'anchor', 'Deploy anchor');
+    return step(`Wait for ${pickup.name} aboard`, `${pickup.name} is ${Math.round(Math.max(0, -pickup.y))} m deep. Hold position for the ascent and boarding; the expedition course resumes afterward.`, 'glance', 'Check the dive team');
+  }
+  if (w.research) {
+    const site = researchSite(w);
+    if (researchReady(w)) {
+      if (!aboard) return step('Return with the research team', 'Survey complete. Ascend and return alongside Kestrel.', has('board') ? 'board' : 'glance', has('board') ? 'Climb aboard' : 'Find Kestrel');
+      const divers = Object.values(w.players).filter(other => other.connected && other.mode === 'diver').length;
+      if (divers) return step('Recover the research team', `${divers} diver${divers === 1 ? '' : 's'} still in the water. Hold position and bring everyone aboard before sailing home.`, 'radio', 'Call the dive team');
+      const homeDistance = distance(w.ship, w.locations.base);
+      if (homeDistance >= 24) {
+        if (w.ship.anchor) return step('Get underway for Pelican Station', 'The research team is aboard. Raise anchor for the homeward sail.', 'anchor', 'Raise anchor');
+        return step('Bring the research report home', `${site.name} surveyed. Sail to Pelican Station, ${Math.round(homeDistance)} m away.`, has('helm') ? 'helm' : 'glance', has('helm') ? 'Take the helm' : 'Show homeward direction');
+      }
+      if (!w.ship.anchor) return step('Anchor at Pelican Station', 'Deploy the anchor beside the station before bringing the findings ashore.', 'anchor', 'Deploy anchor');
+      const reason = researchHarborReason(w, id);
+      return reason ? step('Settle alongside Pelican Station', 'Let Kestrel slow at anchor before filing the report.', 'glance', 'Check the station') : step('File the research report', `The crew surveyed ${site.name}. Bring the findings ashore.`, 'fileResearch', 'File research report');
+    }
+    if (!aboard) return step(`Survey ${site.name}`, 'Reach the habitat signal and hold X to survey. Nearby crewmates can help.', 'survey', 'Show survey controls');
+    if (distance(w.ship, site) >= 32) {
+      if (w.ship.anchor) return step(`Set sail for ${site.name}`, 'Raise the anchor, then sail to the research habitat.', 'anchor', 'Raise anchor');
+      return step(`Sail to ${site.name}`, 'Bring Kestrel close to the habitat signal before anchoring for the survey.', has('helm') ? 'helm' : 'glance', has('helm') ? 'Take the helm' : 'Show research direction');
+    }
+    if (!w.ship.anchor) return step('Hold position for the survey', 'Deploy the anchor so the dive team has a steady place to return.', 'anchor', 'Deploy anchor');
+    return step(`Dive to ${site.name}`, 'Follow the habitat signal and survey together. Return to Pelican Station with the findings.', has('dive') ? 'dive' : 'glance', has('dive') ? 'Enter the water' : 'Show research direction');
+  }
   if (w.mission === 'complete') return step('Choose your next expedition', 'Archive delivered. Explore a habitat together.', 'chart', 'Choose a dive site');
   if (w.cargo.recovered) {
     if (!aboard) return step('Return to Kestrel', 'The archive is secured. Ascend and swim alongside the ladder to climb aboard.', has('board') ? 'board' : 'glance', has('board') ? 'Climb aboard' : 'Find Kestrel');
@@ -39,7 +75,8 @@ export function objectiveDistance(w, id, target) {
 }
 
 export function recoveryStatus(w) {
-  const progress = w.cargo.recovered ? 1 : Math.max(0, Math.min(1, (w.cargo.y - CRATE.y) / (2 - CRATE.y)));
+  const start = w.cargo.initialY ?? CRATE.y;
+  const progress = w.cargo.recovered ? 1 : Math.max(0, Math.min(1, (w.cargo.y - start) / (2 - start)));
   const remaining = Math.max(0, 2 - w.cargo.y);
   if (w.cargo.recovered) {
     const divers = Object.values(w.players).filter(p => p.connected && p.mode === 'diver').length;
@@ -52,6 +89,7 @@ export function recoveryStatus(w) {
 export function objectiveFor(w, id, { quiet = false } = {}) {
   const p = w.players[id];
   if (!p) return null;
+  if (w.research) return researchTarget(w, id);
   if (p.mode === 'diver') {
     if (!w.cargo.attached && (distance(w.ship, w.cargo) >= 32 || !w.ship.anchor)) return { key: 'ship', label: 'KESTREL / BOARDING', x: w.ship.x, y: 0, z: w.ship.z, hint: missionGuidance(w, id).text };
     if (w.cargo.attached) return { key: 'ship', label: 'KESTREL / BOARDING', x: w.ship.x, y: 0, z: w.ship.z, hint: p.y < -3 ? 'Ascend to the surface' : Math.abs(w.ship.speed) >= 2 ? 'Wait for the cutter to slow' : 'Swim alongside · F to board' };
@@ -66,6 +104,7 @@ export function objectiveFor(w, id, { quiet = false } = {}) {
   }
   if (w.mission === 'complete') return null;
   if (w.mission === 'return') return { key: 'base', label: 'PELICAN STATION', ...BASE, y: 3, hint: distance(w.ship, BASE) < 24 ? (Math.abs(w.ship.speed) < 1.5 ? 'F to deliver the archive' : 'Slow to deliver the archive') : 'Bring the archive home' };
-  return { key: 'buoy', label: 'SURVEY BUOY', x: WRECK.x + 17, y: 4, z: WRECK.z,
+  const wreck = activeSalvage(w).wreck;
+  return { key: 'buoy', label: 'SURVEY BUOY', x: wreck.x + 17, y: 4, z: wreck.z,
     hint: missionGuidance(w, id).text };
 }

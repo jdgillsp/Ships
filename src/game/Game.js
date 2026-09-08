@@ -1,3 +1,4 @@
+import { voyageLight } from './VoyageLight.js';
 import * as THREE from 'three';
 import { U } from '../core/SharedUniforms.js';
 import { Connection } from './Connection.js';
@@ -16,6 +17,7 @@ import { CrewNaturalist } from './CrewNaturalist.js';
 import { DiveLight } from './DiveLight.js';
 import { VoyageChart } from './VoyageChart.js';
 import { SurveyConsole } from './SurveyConsole.js';
+import { surveyStatus } from './Survey.js';
 import { DiverBubbles } from './DiverBubbles.js';
 import { DiveSplash } from './DiveSplash.js';
 import { SavedExpeditions, rememberExpedition } from './SavedExpeditions.js';
@@ -24,6 +26,9 @@ import { CrewRadio } from './CrewCalls.js';
 import { deckFollowPose, deckFollowTarget, clearDeckCamera, clearDeckEye } from './DeckCamera.js';
 import { courseTarget } from './VoyageSites.js';
 import { PlayHUD } from './PlayHUD.js';
+import { seabedReading } from './DepthSounder.js';
+import { researchSite, researchReady } from './ResearchVoyages.js';
+import { SALVAGE_SITES, activeSalvage } from './SalvageVoyages.js';
 import { nearbyDeckStation } from './DeckInteraction.js';
 import { DeliveryLog } from './DeliveryLog.js';
 import { TouchControls } from './TouchControls.js';
@@ -48,7 +53,7 @@ export class Game {
     U.uNavigationSea.value.set(1, 0, 0);
     Object.assign(app.post.settings, { dof: false, motionBlur: false, grain: .008, chromatic: .04, vignette: .18, bloomStrength: .09, saturation: 1.12, exposureCompensation: -.35 });
     document.body.classList.add('game-mode');
-    app.underwater.scenery.clearings = [{ ...WRECK, radius: 18 }];
+    app.underwater.scenery.clearings = SALVAGE_SITES.map(s => ({ ...s.wreck, radius: 18 }));
     app.underwater.scenery.pack(app.camera.position);
     this.models = new Vessels(app);
     this.bubbles = new DiverBubbles(app);
@@ -58,6 +63,7 @@ export class Game {
       if (this.state?.players[this.net?.id]?.mode === 'diver' && s.players[this.net?.id]?.mode === 'deck') this.boardingUntil = performance.now() + 1400;
       // The join snapshot contains history, not a newly occurring crew event.
       if (!this.state) { this.lastLog = s.log; this.completed = s.mission === 'complete'; }
+      if (this.state?.mission === 'complete' && s.mission !== 'complete') this.completed = false;
       this.state = s;
     }, status => { this.status = status; });
     this.net.actionGuard = action => action === 'dive' && performance.now() < (this.boardingUntil || 0) ? 'Back aboard. Take a moment before entering the water again.' : null;
@@ -257,6 +263,10 @@ export class Game {
     return null;
   }
   async action(action) {
+    if (action === 'logbook') {
+      if (nearbyDeckStation(this.state, this.net.id)?.station === 'logbook') this.activities.voyageLog.show();
+      return;
+    }
     if (action === 'lookout') {
       if (this.contextAction() === 'lookout') this.setLookout(true);
       return;
@@ -273,8 +283,8 @@ export class Game {
     if (!w) { app.weather.update(dt); return; }
     app.time = w.time; app.ocean.time = w.time; app.paused = false;
     U.uNavigationSea.value.set(1, w.time, w.storm);
-    const storm = w.storm;
-    app.weather.set({ sunElevation: .55 - storm * .25, windSpeed: 5 + storm * 18, swellHs: .7 + storm * 3.2, storm,
+    const storm = w.storm, light = voyageLight(w);
+    app.weather.set({ sunElevation: light.elevation, sunAzimuth: light.azimuth, windSpeed: 5 + storm * 18, swellHs: .7 + storm * 3.2, storm,
       cloudCoverage: .35 + storm * .65, cloudDensity: .55 + storm * .7, rain: storm * .65, fog: storm * .25, spray: storm * .45, lightningRate: storm * .12, foamStrength: .55 }, true);
     app.weather.update(dt);
     const p = w.players[this.net.id]; if (!p) return;
@@ -368,11 +378,21 @@ export class Game {
     this.signals.updateUI(w);
     this.survey.updateUI(w);
     const [title, detail] = titles[w.mission]; this.$('mission-title').textContent = title; this.$('mission-detail').textContent = detail;
+    if (w.contract && w.mission === 'outbound') this.$('mission-title').textContent = activeSalvage(w).name;
+    if (w.research) this.$('mission-title').textContent = researchReady(w) ? 'Bring the research home' : `Survey ${researchSite(w).name}`;
     const course = courseTarget(w, this.net.id), objective = course || objectiveFor(w, this.net.id);
     this.$('mission-detail').textContent = missionGuidance(w, this.net.id)?.text || detail;
     if (course) { this.$('mission-title').textContent = course.label; this.$('mission-detail').textContent = course.hint; }
-    this.root.querySelector('.mission-panel .eyebrow').textContent = course ? 'KESTREL / CREW COURSE' : 'KESTREL / SALVAGE 001';
-    this.$('salvage-progress').hidden = !w.cargo.attached;
+    this.root.querySelector('.mission-panel .eyebrow').textContent = course ? 'KESTREL / CREW COURSE' : `KESTREL / SALVAGE ${String(w.contract?.number || 1).padStart(3, '0')}`;
+    if (w.research) this.root.querySelector('.mission-panel .eyebrow').textContent = 'KESTREL / RESEARCH REQUEST';
+    const localSurvey = surveyStatus(w, this.net.id), surveyingHere = localSurvey?.eligible;
+    this.root.classList.toggle('local-survey', !!surveyingHere);
+    if (surveyingHere) {
+      this.$('mission-title').textContent = localSurvey.site.name;
+      this.$('mission-detail').textContent = localSurvey.complete ? 'Habitat recorded in the crew chart and voyage log.' : 'You found a survey site. Hold X to record it with your crew.';
+      this.root.querySelector('.mission-panel .eyebrow').textContent = 'KESTREL / FIELD SURVEY';
+    }
+    this.$('salvage-progress').hidden = !w.cargo.attached || surveyingHere || !!w.research;
     if (w.cargo.attached) {
       const recovery = recoveryStatus(w);
       this.$('salvage-status').textContent = recovery.text;
@@ -382,6 +402,9 @@ export class Game {
     this.$('station').textContent = { deck: 'ON DECK', helm: 'AT THE HELM', winch: 'WINCH CONTROL', diver: 'DIVE TEAM' }[p.mode];
     this.$('speed').innerHTML = p.mode === 'diver' ? `${Math.max(0, -p.y).toFixed(1)} <small>m deep</small>` : `${s.speed < -.05 ? '−' : ''}${(Math.abs(s.speed) * 1.944).toFixed(1)} <small>kn</small>`;
     this.$('sea-state').textContent = w.storm < .15 ? 'Fair' : w.storm < .5 ? 'Building' : 'Rough';
+    const sounding = seabedReading(w, this.net.id);
+    this.$('sounder-label').textContent = sounding?.label || 'Seabed';
+    this.$('sounder-value').textContent = this.net.ready && sounding ? `${sounding.metres.toFixed(1)} m` : '—';
     const anchor = anchorStatus(s);
     this.$('anchor-state').textContent = anchor.state;
     const helm = this.$('helm-feedback'); helm.hidden = p.mode !== 'helm';
@@ -400,7 +423,7 @@ export class Game {
     this.$('connection-status').classList.toggle('offline', !this.net.ready);
     this.$('connection-recovery').hidden = this.net.ready || performance.now() - this.net.receivedAt < 4000;
     const destination = objective || { key: 'base', ...BASE, y: 3 };
-    const destinationName = destination.key === 'course' ? destination.label : { buoy: 'Survey buoy', archive: 'Archive signal', ship: 'Kestrel', lift: 'Archive recovery', base: 'Pelican Station' }[destination.key];
+    const destinationName = destination.key === 'course' ? destination.label : { buoy: 'Survey buoy', archive: 'Archive signal', ship: 'Kestrel', lift: 'Archive recovery', base: 'Pelican Station' }[destination.key] || destination.label || 'Destination';
     this.$('range').textContent = `${destinationName} · ${Math.round(objectiveDistance(w, this.net.id, destination))} m`;
     const actions = availableActions(w, this.net.id);
     for (const [action, button] of this.actionButtons) {
@@ -423,8 +446,14 @@ export class Game {
     if (p.mode === 'deck') this.$('controls').textContent = `WASD / arrows walk · ${this.view === 'deck' ? 'Q / E turn · ' : ''}Drag to look · C ${this.view === 'chase' ? 'first person · Scroll zoom' : 'follow view'} · L binoculars · G mark for crew`;
     if (p.mode === 'diver' && objective?.key === 'archive') this.$('controls').textContent += ` · Crate ${Math.round(Math.hypot(p.x - w.cargo.x, p.y - w.cargo.y, p.z - w.cargo.z))} m`;
     if (objective && (course || p.mode !== 'helm' || w.mission !== 'outbound')) this.$('pilot-hint').textContent = objective.hint;
+    if (surveyingHere) this.$('pilot-hint').textContent = localSurvey.complete ? 'Survey logged · N opens the crew chart' : 'Hold X to survey · release to pause';
     if (this.lookout) { this.$('pilot-hint').textContent = 'LOOKOUT · walk to the bow for a clear view of the sea'; this.$('controls').textContent = 'WASD walk · Q / E or drag to aim · Scroll or − / + zoom 2–6× · G mark for crew · L / Esc lower'; }
     this.hud.update(w);
+    if (innerWidth <= 650 && !this.root.classList.contains('quiet-play') && !this.root.classList.contains('local-survey') && !this.root.classList.contains('large-text')) {
+      const panels = [...this.root.querySelectorAll('.mission-panel,.nav-panel,.game-top')];
+      const bottom = Math.max(100, ...panels.filter(e => getComputedStyle(e).visibility !== 'hidden').map(e => e.getBoundingClientRect().bottom + 12));
+      this.root.style.setProperty('--console-clearance', `${Math.ceil(bottom)}px`);
+    } else this.root.style.removeProperty('--console-clearance');
     this.objectiveMarker.consoleHeight = this.root.querySelector('.ship-console').offsetHeight;
     this.objectiveMarker.occluders = (this.lookout ? ['.lookout-readout'] : [this.naturalist.open ? '#crew-naturalist' : '.mission-panel', '.nav-panel'])
       .map(selector => this.root.querySelector(selector)).filter(e => getComputedStyle(e).visibility !== 'hidden').map(e => e.getBoundingClientRect());
@@ -436,12 +465,16 @@ export class Game {
     const log = anchorLog && anchorInReadout ? '' : anchor.moving && anchorLog ? `${anchor.description}…` : w.log;
     this.$('game-message').textContent = this.message && performance.now() < this.messageUntil ? this.message : performance.now() < this.logUntil ? log : '';
     this.$('crew-list').replaceChildren(...Object.values(w.players).map((p, index) => { const row = document.createElement('div'); row.className = `crew-row crew-${index}`; const name = document.createElement('span'), mode = document.createElement('span'); name.textContent = `${p.id === this.net.id ? '● ' : '○ '}${p.name}`; mode.textContent = crewActivityLabel(p); row.append(name, mode); return row; }));
-    const phase = course ? (w.surveys?.[course.site.id]?.completedAt != null ? 3 : (w.surveys?.[course.site.id]?.seconds || 0) > 0 ? 2 : p.mode === 'diver' ? 1 : 0) : ['outbound', 'dive', 'recovery', 'return', 'complete'].indexOf(w.mission);
-    this.root.querySelectorAll('.mission-steps span').forEach((el, i) => { el.textContent = (course ? ['SAIL', 'DIVE', 'SURVEY', 'LOGGED'] : ['SAIL', 'DIVE', 'RECOVER', 'RETURN'])[i]; el.classList.toggle('done', i <= phase); });
+    const surveySite = surveyingHere ? localSurvey.site : course?.site;
+    this.root.querySelector('.mission-steps').hidden = course?.site.biome === 'saved' && !surveyingHere;
+    const phase = surveySite ? (w.surveys?.[surveySite.id]?.completedAt != null ? 3 : (w.surveys?.[surveySite.id]?.seconds || 0) > 0 ? 2 : p.mode === 'diver' ? 1 : 0) : ['outbound', 'dive', 'recovery', 'return', 'complete'].indexOf(w.mission);
+    this.root.querySelectorAll('.mission-steps span').forEach((el, i) => { el.textContent = (surveySite ? ['SAIL', 'DIVE', 'SURVEY', 'LOGGED'] : ['SAIL', 'DIVE', 'RECOVER', 'RETURN'])[i]; el.classList.toggle('done', i <= phase); });
+    if (w.research) this.root.querySelectorAll('.mission-steps span').forEach((el, i) => { el.textContent = ['SAIL', 'DIVE', 'SURVEY', 'REPORT'][i]; el.classList.toggle('done', i < (researchReady(w) ? 3 : (w.surveys?.[w.research.site]?.seconds || 0) > 0 ? 2 : p.mode === 'diver' ? 1 : 0)); });
     this.delivery.update(w);
     this.drawChart(w);
   }
   drawChart(w) {
+    const WRECK = activeSalvage(w).wreck;
     const canvas = this.$('sea-chart'), c = canvas.getContext('2d'); const center = { x: (BASE.x + WRECK.x) / 2, z: (BASE.z + WRECK.z) / 2 };
     const course = courseTarget(w, this.net.id);
     const extent = Math.max(160, Math.abs(w.ship.x - center.x) + 40, Math.abs(w.ship.z - center.z) + 40, course ? Math.max(Math.abs(course.x - center.x), Math.abs(course.z - center.z)) + 40 : 0);

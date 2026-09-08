@@ -1,3 +1,4 @@
+import { pickupDiver } from './PickupCourse.js';
 import { availableActions, BASE, WRECK, distance } from './Simulation.js';
 import { recoveryStatus, missionGuidance } from './Guidance.js';
 import { courseTarget } from './VoyageSites.js';
@@ -5,14 +6,24 @@ import { surveyStatus, SURVEY_RADIUS, SURVEY_SECONDS } from './Survey.js';
 import { dialogFocus } from './DialogFocus.js';
 import { canCall, CALL_COOLDOWN } from './CrewCalls.js';
 import { stationGuide } from './StationGuide.js';
+import { VoyageLog, voyageTime } from './VoyageLog.js';
+import { activeSalvage } from './SalvageVoyages.js';
+import { SalvageJobs } from './SalvageJobs.js';
+import { CrewInscriptionControls } from './CrewInscription.js';
+import { HullPaintControls } from './HullPaint.js';
+import { ResearchJobs } from './ResearchJobs.js';
+import { DiveReturnBriefing } from './DiveReturn.js';
+import { researchSite, researchReady, researchHarborReason } from './ResearchVoyages.js';
 
-export function crewActivityLabel(player) {
+export function crewActivityLabel(player, time) {
   if (!player.connected) return 'Reconnecting';
-  if (player.mode === 'diver') return `${player.surveying ? 'Surveying' : 'Diving'} · ${Math.max(0, -player.y).toFixed(0)} m`;
+  if (player.mode === 'diver') return `${player.surveying ? 'Surveying' : 'Diving'} · ${Math.max(0, -player.y).toFixed(0)} m` +
+    (player.diveRecord && Number.isFinite(time) ? ` · ${voyageTime(time - player.diveRecord.startedAt)} elapsed · ${Math.round(player.diveRecord.maximumDepth)} m deepest` : '');
   return { deck: 'On deck', helm: 'Captain', winch: 'Winch' }[player.mode] || 'Aboard';
 }
 
 export function crewActivities(world, id) {
+  const WRECK = activeSalvage(world).wreck;
   const p = world.players[id]; if (!p) return null;
   const actions = availableActions(world, id), can = action => actions.includes(action), diver = p.mode === 'diver';
   const captain = world.players[world.ship.pilot];
@@ -34,27 +45,36 @@ export function crewActivities(world, id) {
       detail: 'Your crew brought the archive home. Keep sailing and discover another habitat together.' } : { title: 'Bring the archive home', action: 'deliver', button: 'Deliver archive', enabled: can('deliver'),
       detail: `${recoveryStatus(world).text}. ${Math.round(distance(world.ship, BASE))} m to Pelican Station; slow alongside to deliver the archive.` });
   }
+  if (world.research) Object.assign(jobs[3], { id: 'recover', title: `Research: ${researchSite(world).name}`, action: researchReady(world) && !researchHarborReason(world, id) ? 'fileResearch' : 'glance',
+    button: researchReady(world) && !researchHarborReason(world, id) ? 'File research report' : 'Show research direction', enabled: true,
+    detail: researchReady(world) ? 'Survey complete. Bring the crew to Pelican Station and file the report.' : 'Survey the requested habitat with your crew. The research request and its controls are below.' });
+  if (world.research && researchReady(world)) {
+    const step = missionGuidance(world, id);
+    Object.assign(jobs[3], step, { detail: step.text });
+    if (!diver && canCall(world, id, 'recall')) jobs[3].request = { kind: 'recall', label: 'Ask dive team to return' };
+  }
   const course = courseTarget(world, id);
   const survey = surveyStatus(world, id);
   if (survey) {
     const { site, record, complete, progress, eligible } = survey;
-    const active = Object.values(world.players).filter(p => p.connected && p.surveying).map(p => p.name);
+    const active = Object.values(world.players).filter(p => p.connected && p.surveying && surveyStatus(world, p.id)?.site.id === site.id).map(p => p.name);
     const detail = complete ? `Logged by ${record.contributors.map(c => c.name).join(' & ')}. Choose another habitat or stay and study its wildlife.` :
-      `${Math.round(-site.y)} m deep · ${Math.round(course.distance)} m away. ${Math.floor(progress * 100)}% surveyed${active.length ? ` · ${active.join(' & ')} scanning` : ''}. ` +
+      `${Math.round(-site.y)} m deep · ${Math.round(diver ? survey.distance : distance(world.ship, site))} m away. ${Math.floor(progress * 100)}% surveyed${active.length ? ` · ${active.join(' & ')} scanning` : ''}. ` +
       (diver ? `Swim within ${SURVEY_RADIUS} m of the signal and hold X or the survey button. ${SURVEY_SECONDS} seconds of combined diver effort logs the site; each teammate helps.` : can('dive') ? 'Sail close to the site, then dive to the underwater signal. Your crew can scan together; partial work is kept.' : 'Ask the captain to slow below 4 knots before diving. Your crew can scan together; partial work is kept.');
     jobs.unshift({ id: 'survey', title: `${complete ? 'Survey logged' : 'Survey together'}: ${site.name}`, detail,
       action: complete ? 'chart' : diver ? 'survey' : 'dive', button: complete ? 'Choose the next habitat' : diver ? (eligible ? 'Show survey controls' : 'Follow survey signal') : 'Enter water to survey',
       enabled: complete || diver || can('dive'), progress, complete });
   }
-  let recommended = survey && !survey.complete && (diver || (course.distance < 32 && can('dive'))) ? 'survey' : world.cargo.attached && !world.cargo.recovered ? 'recover' : diver ? 'dive' : world.ship.anchor && (course ? course.distance < 32 : distance(world.ship, WRECK) < 32) ? 'dive' : captain && captain.id !== id ? 'lookout' : 'navigate';
-  if (!course && world.mission !== 'complete') {
+  let recommended = survey && !survey.complete && (diver || (distance(world.ship, survey.site) < 32 && can('dive'))) ? 'survey' : world.cargo.attached && !world.cargo.recovered ? 'recover' : diver ? 'dive' : world.ship.anchor && (course ? course.distance < 32 : distance(world.ship, WRECK) < 32) ? 'dive' : captain && captain.id !== id ? 'lookout' : 'navigate';
+  if (world.research && researchReady(world) && (!world.course || world.course.id === 'pelican-station')) recommended = 'recover';
+  if (pickupDiver(world) || !course && !survey?.eligible && (world.mission !== 'complete' || world.research)) {
     const step = missionGuidance(world, id);
     const mission = { id: 'mission', ...step, detail: step.text, enabled: true };
-    if (diver && !world.ship.anchor && distance(world.ship, world.cargo) < 32 && canCall(world, id, 'anchor')) mission.request = { kind: 'anchor', label: 'Ask crew to anchor' };
-    if (diver && world.cargo.attached && !world.winch && canCall(world, id, 'winch')) mission.request = { kind: 'winch', label: 'Request winch operator' };
+    if (!world.pickup && !world.research && diver && !world.ship.anchor && distance(world.ship, world.cargo) < 32 && canCall(world, id, 'anchor')) mission.request = { kind: 'anchor', label: 'Ask crew to anchor' };
+    if (!world.pickup && !world.research && diver && world.cargo.attached && !world.winch && canCall(world, id, 'winch')) mission.request = { kind: 'winch', label: 'Request winch operator' };
     jobs.unshift(mission); recommended = 'mission';
     const navigation = jobs.find(job => job.id === 'navigate'); navigation.title = 'Explore optional dive sites';
-    navigation.detail = 'Take a detour to survey a habitat. Plotting a crew course replaces salvage guidance until you resume it.';
+    navigation.detail = 'Take a detour to survey a habitat. Plotting a crew course replaces expedition guidance until you resume it.';
   }
   const aboardCrew = Object.values(world.players).some(other => other.connected && other.id !== id && other.mode !== 'diver');
   if (aboardCrew) {
@@ -67,7 +87,7 @@ export function crewActivities(world, id) {
     }
   }
   return { jobs: jobs.map(job => ({ ...job, recommended: job.id === recommended && job.enabled })),
-    intro: diver ? 'You’re on the dive team. Explore, study wildlife, or help recover the archive.' : captain && captain.id !== id ? `${captain.name} has the helm. You can scout, plan a course, or join the dive team.` : p.mode === 'helm' ? 'You’re steering Kestrel. Your crewmates can scout, plan courses, dive and recover the archive.' : 'Choose something to do aboard Kestrel. You can switch activities whenever you like.' };
+    intro: pickupDiver(world) ? `Pickup in progress for ${pickupDiver(world).name}. The plotted expedition course is kept until they are aboard.` : world.research ? `Research request: ${researchSite(world).name}. ${researchReady(world) ? 'The report is ready to bring home.' : 'Sail, survey together, and return to Pelican Station with the findings.'}` : diver ? 'You’re on the dive team. Explore, study wildlife, or help recover the archive.' : captain && captain.id !== id ? `${captain.name} has the helm. You can scout, plan a course, or join the dive team.` : p.mode === 'helm' ? 'You’re steering Kestrel. Your crewmates can scout, plan courses, dive and recover the archive.' : 'Choose something to do aboard Kestrel. You can switch activities whenever you like.' };
 }
 
 export class CrewActivities {
@@ -103,17 +123,30 @@ export class CrewActivities {
       const focusSurvey = this.focusSurvey; this.focusSurvey = false;
       if (game.dialogOpen()) return;
       if (focusSurvey) { game.survey.updateUI(game.state); if (!game.survey.button.disabled) { game.survey.button.focus({ preventScroll: true }); return; } }
-      restoreFocus(this.button, game.hud.button);
+      restoreFocus(this.returnFocus, this.button, game.hud.button);
     });
     this.$('activities-journal').onclick = () => { this.dialog.close(); game.naturalist.showJournal(); };
+    this.voyageLog = new VoyageLog(game, this);
+    this.paint = new HullPaintControls(game, this);
+    this.salvageJobs = new SalvageJobs(game, this);
+    this.inscription = new CrewInscriptionControls(game, this);
+    this.researchJobs = new ResearchJobs(game, this);
+    this.diveReturns = new DiveReturnBriefing(game, this);
   }
   show() {
     const g = this.game; if (!g.started || g.dialogOpen()) return;
+    this.returnFocus = this.button;
     g.setLookout(false); g.naturalist.toggle(false); g.keys.clear(); g.net.input({});
     this.$('activities-status').textContent = ''; this.dialog.showModal(); this.updateUI(g.state);
   }
   updateUI(world) {
+    this.voyageLog.update(world);
     if (!this.dialog.open) return;
+    this.paint.update(world);
+    this.inscription.update(world);
+    this.salvageJobs.update(world);
+    this.researchJobs.update(world);
+    this.diveReturns.update(world);
     if (this.scoutAfterRelease && world.players[this.game.net.id]?.mode === 'deck' && this.game.lastMode === 'deck' && this.game.net.ready) {
       this.scoutAfterRelease = false; this.dialog.close(); this.game.setLookout(true); return;
     }
@@ -127,7 +160,7 @@ export class CrewActivities {
       }));
     }
     this.$('activities-intro').textContent = model.intro;
-    const crew = Object.values(world.players).filter(p => p.connected).map(p => ({ id: p.id, name: p.name, duty: crewActivityLabel(p) }));
+    const crew = Object.values(world.players).filter(p => p.connected).map(p => ({ id: p.id, name: p.name, duty: crewActivityLabel(p, world.time) }));
     const crewKey = JSON.stringify(crew);
     if (this.crewKey !== crewKey) {
       this.crewKey = crewKey;

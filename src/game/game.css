@@ -138,6 +138,12 @@ body.game-mode #hud,body.game-mode #panel,body.game-mode #expedition,body.game-m
 @media(max-width:650px){#habitat-survey{margin-top:10px;padding-top:8px}.survey-heading{font-size:calc(14px * var(--ui-text-scale, 1));gap:5px;letter-spacing:.3px}#survey-detail{font-size:calc(14px * var(--ui-text-scale, 1))}#survey-progress{margin:7px 0}}
 #survey-progress{border:0;border-radius:3px;overflow:hidden;background:#b7c9bb22}#survey-progress::-webkit-progress-bar{background:#b7c9bb22}#survey-progress::-webkit-progress-value{background:#82dfbf;transition:width .2s linear}
 @media(max-width:650px){#game:has(#habitat-survey:not([hidden])) .mission-panel{width:calc(100% - 178px)}}
+@media(max-width:650px){
+  #game.local-survey:not(.quiet-play){overflow-y:auto;pointer-events:auto}
+  #game.local-survey:not(.quiet-play) .mission-panel{position:relative;inset:auto;float:left;margin:87px 0 20px 18px}
+  #game.local-survey:not(.quiet-play) .nav-panel{position:relative;inset:auto;float:right;margin:95px 12px 20px 0}
+  #game.local-survey:not(.quiet-play) .ship-console{position:relative;inset:auto;transform:none;clear:both;margin:20px 10px;width:calc(100% - 20px)}
+}
 .launch-screen{gap:clamp(30px,7vw,110px);overflow:auto;align-items:safe center}.launch-card{flex-shrink:0}.recent-expeditions{width:340px;max-width:100%;padding:24px;background:#0b2635dd;border:1px solid #96b6a544;border-radius:9px}.recent-expeditions h2{font:calc(29px * var(--ui-text-scale, 1)) Georgia,serif;margin:0 0 12px;color:var(--gold)}.recent-expeditions>p,.recent-expeditions article p{font-size:calc(14px * var(--ui-text-scale, 1));line-height:1.6;color:#bfd0c8}.recent-expeditions article{border-top:1px solid var(--line);padding:14px 0}.recent-expeditions article:last-child{padding-bottom:0}.recent-expeditions h3{font-size:calc(14px * var(--ui-text-scale, 1));font-weight:500;margin:0 0 6px}.recent-expeditions article p{margin:0 0 12px}.recent-expeditions .resume-expedition{color:var(--gold)!important}.recent-expeditions .forget-expedition{margin-left:7px;border-color:transparent!important;color:#a6b9b5!important}#expedition-save-status{border-top:1px solid var(--line);padding-top:20px}#save-expedition{color:var(--gold)!important}@media(max-width:950px){.launch-screen:has(.recent-expeditions:not([hidden])){flex-direction:column;align-items:center;justify-content:flex-start;padding-top:90px;padding-bottom:45px}.recent-expeditions{width:430px}}
 .context-row{display:flex;align-items:center;justify-content:space-between;gap:14px}#pilot-hint{min-width:0}#game #crew-activities{flex-shrink:0;font-size:calc(14px * var(--ui-text-scale, 1));padding:7px 10px;color:var(--gold)}#game.lookout-active #crew-activities{display:none}/* The activity list reads as the cutter's working notebook. */
 #crew-activities-dialog{margin:auto;width:min(700px,calc(100% - 24px));max-height:calc(100dvh - 36px);overflow:auto;padding:24px 30px;background:linear-gradient(90deg,#bab7a3 0 5px,#d7d3c1 5px 100%);color:#233936;border:1px solid #ede8d2;border-radius:2px;box-shadow:0 14px 60px #00131d66}
@@ -154,6 +160,31 @@ body.game-mode #hud,body.game-mode #panel,body.game-mode #expedition,body.game-m
 #activity-controls>p{font-style:italic;margin:0 0 12px;font-size:calc(14px * var(--ui-text-scale, 1))}
 #activity-controls dl{display:grid;grid-template-columns:minmax(85px,1fr) minmax(0,3fr);gap:10px 16px;line-height:1.6;margin:0 0 16px}
 #activity-controls dt{font-weight:600}#activity-controls dd{margin:0}
+#voyage-log{border-block:1px solid #65776655;margin-top:20px;color:#243d34;overflow-wrap:anywhere}
+#voyage-log summary{padding:14px 0;min-height:44px;box-sizing:border-box;cursor:pointer;font-weight:600}
+#voyage-log summary:focus-visible{outline:2px solid #365c53;outline-offset:3px}
+#voyage-log>p{line-height:1.6;color:#40554c}
+#voyage-log ol{list-style:none;padding:0;margin:12px 0}
+#voyage-log li{padding:12px 0;border-top:1px solid #65776633}
+#voyage-log li>span{display:block;font-size:12px;font-variant-numeric:tabular-nums;color:#53675e;margin-bottom:4px}
+#voyage-log li>strong{font-size:17px}#voyage-log li>p{margin:5px 0;line-height:1.5}
+#save-voyage-log{margin:0 0 16px;min-height:44px}
+#saved-place-controls{border-top:1px solid #71826366;margin-top:20px;padding-top:10px}
+#saved-place-controls input,#saved-place-controls select{box-sizing:border-box;width:100%;min-height:44px;margin:6px 0 12px;padding:8px;border:1px solid #718263;background:#eeebdc;color:#233e34;font:inherit}
+#saved-place-controls button,#remove-place{min-height:44px}
+#saved-place-controls p{overflow-wrap:anywhere}
+#place-notebook{border-block:1px solid #71826366;padding:8px 0;margin:16px 0}
+#place-notebook summary{min-height:44px;box-sizing:border-box;padding:10px 0;cursor:pointer;font-weight:600}
+#place-notebook input,#place-notebook textarea{box-sizing:border-box;width:100%;padding:9px;min-height:44px;background:#eeebdc;color:#233e34;border:1px solid #718263;font:inherit;margin:6px 0 12px}
+#place-notebook textarea{resize:vertical;line-height:1.5}#place-notebook button{min-height:44px}
+#place-notebook p{overflow-wrap:anywhere}
+#salvage-jobs{border-block:1px solid #65776655;padding:14px 0;margin:20px 0;color:#243d34;line-height:1.6}
+#salvage-jobs select{display:block;width:100%;box-sizing:border-box;min-height:44px;padding:8px;background:#eeebdc;color:#233e34;border:1px solid #718263;font:inherit}
+#salvage-jobs button{min-height:44px}#salvage-jobs p{overflow-wrap:anywhere}
+#dive-planner{border-block:1px solid #71826366;padding:8px 0;margin:16px 0}
+#dive-planner dl{margin:14px 0;line-height:1.5}#dive-planner dt{font-weight:600;margin-top:10px}#dive-planner dd{margin:3px 0}
+#dive-planner .planning-note{font-size:13px;line-height:1.5;color:#536358}
+#dive-planner select{width:100%;min-height:44px;box-sizing:border-box;background:#eeebdc;color:#233e34;border:1px solid #718263;padding:8px;font:inherit}
 .activities-grid article{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:22px;align-items:center;padding:15px 0;border-bottom:1px solid #65776655}
 .activity-category{grid-column:1;font-size:calc(14px * var(--ui-text-scale, 1));letter-spacing:1.2px;text-transform:uppercase;color:#4d5b45;display:flex;flex-wrap:wrap;gap:5px 12px}
 .activity-suggestion{font-size:calc(14px * var(--ui-text-scale, 1));letter-spacing:0;text-transform:none;font-style:italic;color:#775326}
@@ -280,11 +311,11 @@ body.game-mode #hud,body.game-mode #panel,body.game-mode #expedition,body.game-m
 #game .study-optics button{min-width:30px;min-height:28px;padding:4px 8px;font-size:calc(14px * var(--ui-text-scale, 1))}
 #crew-naturalist .study-optics small{margin-left:auto;font-size:calc(14px * var(--ui-text-scale, 1));color:#b7cfc3}
 @media(pointer:coarse){#game .study-optics button{min-width:40px;min-height:36px}#crew-naturalist .study-optics small{display:none}}
-#crew-naturalist{padding:12px 16px}
-#crew-naturalist h2{font-size:calc(24px * var(--ui-text-scale, 1));margin:5px 0}
+#crew-naturalist{padding:6px 16px}
+#crew-naturalist h2{font-size:calc(24px * var(--ui-text-scale, 1));margin:3px 0}
 #crew-naturalist #study-status{margin:5px 0}
 #crew-naturalist #study-progress{margin:7px 0}
-#crew-naturalist .study-optics{margin:7px 0 9px}
+#crew-naturalist .study-optics{margin:4px 0 6px}
 #crew-naturalist .naturalist-foot{justify-content:flex-start}
 #game #toggle-study-notes{display:block;margin-top:7px;padding:4px 0;min-height:26px;border:0;background:transparent;color:#b9d6c6;font-size:calc(14px * var(--ui-text-scale, 1));text-align:left}
 #toggle-study-notes::before{content:'▸';display:inline-block;width:13px}
@@ -363,6 +394,7 @@ body.game-mode #gl{touch-action:none}
 #game .game-top-actions{flex-wrap:wrap;justify-content:flex-end}
 #game .launch-screen{padding-bottom:max(25px,env(safe-area-inset-bottom))}
 #game .ship-console{bottom:max(12px,env(safe-area-inset-bottom));max-height:calc(100dvh - 100px);overflow-y:auto}
+@media(max-width:650px){#game:not(.quiet-play):not(.local-survey):not(.large-text) .ship-console{max-height:calc(100dvh - var(--console-clearance,100px) - max(12px,env(safe-area-inset-bottom)))}}
 #game #first-use-help{flex-wrap:wrap;line-height:1.6}
 #game #first-use-copy{flex:1 1 220px}
 #game .activities-grid button{white-space:normal;overflow-wrap:anywhere}
@@ -406,3 +438,36 @@ body.game-mode #gl{touch-action:none}
 #game.large-text:not(.quiet-play) .mission-panel{padding:16px}
 #game.large-text:not(.quiet-play) .instrument-row{flex-wrap:wrap}
 #game.large-text:not(.quiet-play) :is(.world-marker,#crew-in-view,#navigation-glance-panel){visibility:hidden}
+#crew-log-composer{margin-top:22px;padding-top:18px;border-top:1px solid #65776655}
+#crew-log-composer label{display:block;font-weight:600}
+#crew-log-composer textarea{display:block;width:100%;resize:vertical;min-height:100px;margin:10px 0;padding:10px;background:#ece8d8;color:#233936;border:1px solid #829078;font:inherit}
+#crew-log-composer button{min-height:44px}
+#voyage-log li p{white-space:pre-wrap;overflow-wrap:anywhere}
+#voyage-log-search{margin:18px 0}
+#voyage-log-search label{display:block;margin-bottom:8px}
+#voyage-log-search input{display:block;width:100%;min-height:44px;padding:10px;margin-bottom:8px;background:#ece8d8;color:#233936;border:1px solid #829078;font:inherit}
+#voyage-log-search button{min-height:44px}
+#hull-paint{margin:20px 0;padding:16px 0;border-block:1px solid #65776655}
+#hull-paint label{display:block;margin-bottom:8px}
+#hull-paint select{display:block;width:100%;min-height:44px;margin-bottom:10px;padding:10px;background:#ece8d8;color:#233936;font:inherit}
+#hull-paint button{min-height:44px}
+#game #share-wildlife{display:block;min-height:44px;margin-top:12px}
+#game #sighting-status{font-size:calc(14px * var(--ui-text-scale, 1));line-height:1.5;margin:8px 0}
+#game #sighting-status:empty{display:none}
+#seabed-sounder{margin:10px 0 0;font-size:calc(14px * var(--ui-text-scale, 1));color:#d0dcd2;font-variant-numeric:tabular-nums}
+#seabed-sounder strong{font-weight:500}
+#game.quiet-play #seabed-sounder,#game.lookout-active #seabed-sounder{display:none}
+#research-jobs{margin:20px 0;padding:16px 0;border-block:1px solid #65776655}
+#research-jobs label{display:block;margin-bottom:8px}
+#research-jobs select{display:block;width:100%;min-height:44px;padding:10px;background:#ece8d8;color:#233936;font:inherit}
+#research-jobs button{min-height:44px;margin:6px 8px 6px 0}
+#dive-return-briefing{margin:20px 0;padding:16px 0;border-bottom:1px solid #65776655}
+#dive-return-briefing ul{padding:0;list-style:none}
+#dive-return-briefing li{padding:10px 0;border-top:1px solid #65776633}
+#dive-return-briefing li p{margin:6px 0;line-height:1.6}
+
+#crew-inscription{margin:20px 0;padding:16px 0;border-block:1px solid #65776655}
+#crew-inscription label{display:block;margin-bottom:8px}
+#crew-inscription input{box-sizing:border-box;display:block;width:100%;min-height:44px;margin-bottom:10px;padding:10px;background:#ece8d8;color:#233936;font:inherit;border:1px solid #65776677}
+#crew-inscription button{min-height:44px;margin:0 8px 8px 0}
+#inscription-current{overflow-wrap:anywhere}

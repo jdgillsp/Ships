@@ -8,6 +8,7 @@ import { BOARDING_LADDER } from './Boarding.js';
 import { dialStrokes } from './DialMarkings.js';
 import { helmSpeedAngle, HELM_SPEED_MAX } from './HelmRig.js';
 import { RADIO_STATION } from './RadioStation.js';
+import { LOGBOOK_STATION } from './LogbookStation.js';
 
 export function mesh(g, geo, color, x = 0, y = 0, z = 0, glow = 0, finish = 'paint') {
   const m = trackMotion(new THREE.Mesh(geo, material(color, glow, finish))); m.position.set(x, y, z); g.add(m); return m;
@@ -153,6 +154,7 @@ export function cutter() {
   box(g, 1.4, .12, .7, '#a5aa99', .65, 1.99, -.45);
   for (const y of [2.35, 2.51, 2.67]) box(g, .8, .045, .07, '#2b4247', -.95, y, -.015);
   deckRadio(g);
+  deckLogbook(g);
   for (const side of [-1, 1]) {
     const points = [[side * 2.64, 2.9, -6.5], [side * 2.9, 2.9, -3], [side * 2.96, 2.95, 2], [side * 2.65, 3.05, 5], [side * 1.45, 3.15, 7.5], [0, 3.25, 8.8]];
     // Leave the ladder opening clear instead of asking divers to pass through
@@ -224,6 +226,23 @@ function sternGear(hull) {
   return [batchStatic(propeller),batchStatic(rudder)];
 }
 
+function deckLogbook(parent) {
+  const g = new THREE.Group(); g.name = 'Ship logbook'; g.position.set(LOGBOOK_STATION.x, LOGBOOK_STATION.y, LOGBOOK_STATION.z); parent.add(g);
+  // A shallow wall rack leaves the working passage clear, including with cargo aboard.
+  box(g, .76, .68, .13, '#48645d', 0, 0, .015, 'metal');
+  box(g, .72, .035, .25, '#a3afa0', 0, -.34, -.04, 'metal');
+  const book = new THREE.Group(); book.name = 'Weatherproof voyage ledger'; book.rotation.z = -.035; g.add(book);
+  box(book, .64, .54, .055, '#334c47', 0, -.015, -.078, 'rubber');
+  for (const x of [-.155, .155]) {
+    box(book, .285, .49, .028, '#d7d0ae', x, -.005, -.113);
+    for (let i = 0; i < 7; i++) box(book, .23 - (i % 3) * .022, .004, .004, '#81928a', x, .13 - i * .044, -.13);
+  }
+  bar(book, [0, -.265, -.133], [0, .255, -.133], .012, '#987945');
+  box(g, .19, .035, .035, '#aeb9ac', 0, .255, -.14, 'metal');
+  bar(g, [.28, -.26, -.158], [.28, .13, -.158], .012, '#bd8c46');
+  bar(g, [.28, -.30, -.158], [.28, -.26, -.158], .006, '#39433b');
+}
+
 function deckRadio(parent) {
   const g = new THREE.Group(); g.name = 'Deck radio'; g.position.set(RADIO_STATION.x, RADIO_STATION.y, RADIO_STATION.z); parent.add(g);
   for (const x of [-.18, .18]) box(g, .035, .42, .32, '#7c8980', x, 0, .16, 'metal');
@@ -292,7 +311,7 @@ function helm(parent) {
   const moving = [batchStatic(wheel), ...needles]; for (const part of moving) part.position.z += .6; return moving;
 }
 
-function dialLabel(parent, text, x, y, z, height, color, angle = 0) {
+export function dialLabel(parent, text, x, y, z, height, color, angle = 0) {
   const label = new THREE.Group(); label.name = `Dial ${text}`; label.position.set(x, y, z); label.rotation.z = angle; parent.add(label);
   for (const [a, b] of dialStrokes(text)) {
     // The helm face is viewed from local -Z, so its writing runs toward -X.

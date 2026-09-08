@@ -1,6 +1,9 @@
+import { HelmCourse } from './HelmCourse.js';
+import { HelmSounder } from './HelmSounder.js';
 import * as THREE from 'three';
 import { BASE, WRECK, RECIPE, seaHeight } from './Simulation.js';
 import { oceanFloor } from '../underwater/OceanDomain.js';
+import { SALVAGE_SITES, activeSalvage } from './SalvageVoyages.js';
 
 import { mesh, box, bar, cutter, archive, diver, batchStatic } from './VesselModels.js';
 import { VesselShadow } from './VesselShadow.js';
@@ -15,10 +18,26 @@ import { wreckSite } from './WreckSite.js';
 import { updateVesselLighting } from './VesselLighting.js';
 import { helmRigState, HELM_STATION_Z } from './HelmRig.js';
 import { AnchorGear } from './AnchorGear.js';
+import { InscriptionPlate } from './InscriptionPlate.js';
+import { DEFAULT_INSCRIPTION } from './CrewInscription.js';
+import { HULL_PAINTS } from './HullPaint.js';
 
 export class Vessels {
   constructor(app) {
     this.app = app; this.root = new THREE.Group(); this.ship = cutter(); this.root.add(this.ship);
+    this.ship.traverse(o => {
+      const source = o.material;
+      if (!o.isMesh || source?.uniforms?.color?.value.getHexString() !== '34545b') return;
+      if (!this.hullPaint) {
+        this.hullPaint = source.clone();
+        // Keep live lighting and motion uniforms, isolate only this cutter's paint.
+        this.hullPaint.uniforms = { ...source.uniforms, color: { value: source.uniforms.color.value.clone() } };
+      }
+      o.material = this.hullPaint;
+    });
+    this.inscription = new InscriptionPlate(this.ship);
+    this.sounder = new HelmSounder(this.ship);
+    this.coursePointer = new HelmCourse(this.ship);
     this.base = new THREE.Group(); this.base.position.set(BASE.x - 22, 0, BASE.z); this.root.add(this.base);
     box(this.base, 16, 1.3, 22, '#334f58', 0, .2, 0); box(this.base, 15.8, .22, 21.8, '#b7ae91', 0, 1, 0);
     box(this.base, 8, 4, 7, '#d1d8c3', -2, 3.1, 3);
@@ -35,7 +54,7 @@ export class Vessels {
     for (let x = -5.7; x < 2; x += .38) box(this.base, .025, 3.7, .04, '#a0ae9e', x, 3.1, -.53);
     const solar = box(this.base, 2.7, .09, 3.4, '#304f5d', .15, 5.73, 3, 'glass'); solar.rotation.z = -.19;
     for (const z of [-7.5, -5.7]) { mesh(this.base, new THREE.CylinderGeometry(.5, .5, 1.25, 24), '#607b78', -5, 1.76, z, 0, 'metal'); for (const y of [1.3, 2.2]) { const rim = mesh(this.base, new THREE.TorusGeometry(.5,.025,8,24), '#9aa58f', -5,y,z);rim.rotation.x=Math.PI/2; } }
-    this.wreck = wreckSite(); this.root.add(this.wreck);
+    this.wrecks = SALVAGE_SITES.map(s => wreckSite(s.wreck)); this.root.add(...this.wrecks); this.wreck = this.wrecks[0];
     this.buoy = new THREE.Group(); this.buoy.position.set(WRECK.x + 17, 0, WRECK.z); this.root.add(this.buoy);
     mesh(this.buoy, new THREE.CylinderGeometry(.65, 1, 1.5, 12), '#f2b744', 0, .4); bar(this.buoy, [0, 1, 0], [0, 4, 0], .06, '#f0cb6d');
     mesh(this.buoy, new THREE.SphereGeometry(.22, 10, 8), '#fff5ab', 0, 4, 0, 3);
@@ -55,6 +74,8 @@ export class Vessels {
     app.scene.add(this.root);
     this.waterRoot = this.root.clone(true); this.waterRoot.traverse(o => { if (o.isMesh) trackMotion(o); }); app.underwater.scene.add(this.waterRoot);
     this.originals = []; this.copies = []; this.root.traverse(o => this.originals.push(o)); this.waterRoot.traverse(o => this.copies.push(o));
+    this.sounder.waterDigits = this.sounder.digits.map((_, i) => this.waterRoot.getObjectByName(`Sounder digit ${i}`));
+    this.inscription.waterLetters = this.waterRoot.getObjectByName('Crew inscription lettering');
     this.waterCrew = this.crew.map(g => this.copies[this.originals.indexOf(g)]);
     this.machinery = Object.fromEntries(['drum', 'sheave', 'lever', 'active', 'waiting'].map(key => [key, this.ship.getObjectByName(`Recovery ${key}`)]));
     this.helm = Object.fromEntries(['wheel', 'compass', 'speed'].map(key => [key, this.ship.getObjectByName(`Helm ${key}`)]));
@@ -63,6 +84,14 @@ export class Vessels {
     this.shadow = new VesselShadow(app.renderer, this.root);
   }
   update(w, id, view = 'chase') {
+    this.inscription.update(w.ship.inscription?.text || DEFAULT_INSCRIPTION);
+    this.sounder.update(w);
+    this.coursePointer.update(w);
+    this.hullPaint?.uniforms.color.value.set(HULL_PAINTS[w.ship.paint || 'teal'].color);
+    const site = activeSalvage(w); this.wreck = this.wrecks[SALVAGE_SITES.indexOf(site)];
+    this.buoy.position.x = site.wreck.x + 17; this.buoy.position.z = site.wreck.z;
+    this.mooringFloor = oceanFloor(this.buoy.position.x, this.buoy.position.z, RECIPE);
+    this.mooringWeight.position.set(this.buoy.position.x, this.mooringFloor, this.buoy.position.z);
     this.helmCamera = w.players[id]?.mode === 'helm' && view === 'deck';
     const s = w.ship; this.ship.position.set(s.x, s.y, s.z); this.ship.rotation.set(s.pitch, s.heading, s.roll, 'YXZ');
     updateVesselLighting(this.ship);
@@ -71,7 +100,7 @@ export class Vessels {
     const lineBottom = this.mooringFloor + .48, lineTop = this.buoy.position.y - .35;
     this.mooring.position.set(this.buoy.position.x, (lineBottom + lineTop) / 2, this.buoy.position.z); this.mooring.scale.y = lineTop - lineBottom;
     if (w.cargo.recovered) { const pos = this.ship.localToWorld(new THREE.Vector3(0, 2.8, -2.2)); this.crate.position.copy(pos); this.crate.quaternion.copy(this.ship.quaternion); }
-    else this.crate.position.set(w.cargo.x, w.cargo.y, w.cargo.z);
+    else { this.crate.position.set(w.cargo.x, w.cargo.y, w.cargo.z); this.crate.rotation.set(0, 0, 0); }
     this.cable.visible = w.cargo.attached && !w.cargo.recovered;
     if (this.cable.visible) { const start = this.ship.localToWorld(new THREE.Vector3(...CABLE_EXIT)), end = this.crate.localToWorld(new THREE.Vector3(...LIFTING_EYE)), delta = end.clone().sub(start); this.cable.position.copy(start.add(end).multiplyScalar(.5)); this.cable.scale.y = delta.length(); this.cable.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize()); }
     const rig = recoveryRigState(w);

@@ -52,12 +52,13 @@ export class CrewNaturalist {
       <progress id="study-progress" max="1" value="0" aria-label="Observation progress"></progress>
       <div class="study-optics"><span>Lens</span><button id="study-zoom-out" aria-label="Zoom out">−</button><button id="study-zoom-reset" aria-label="Reset observation zoom">1.0×</button><button id="study-zoom-in" aria-label="Zoom in">+</button><small>Scroll to zoom</small></div>
       <div class="naturalist-foot"><button id="photograph-wildlife" aria-keyshortcuts="P" disabled>Photograph</button><button id="open-crew-journal">Field journal [J]</button></div><p id="photo-status" role="status"></p>
-      <button id="toggle-study-notes" aria-expanded="false" aria-controls="study-notes">Field notes</button><div id="study-notes" hidden><p id="study-note"></p><span id="study-record"></span></div>`;
+      <button id="toggle-study-notes" aria-expanded="false" aria-controls="study-notes">Field notes & sharing</button><div id="study-notes" hidden><p id="study-note"></p><span id="study-record"></span><button id="share-wildlife" disabled>Share sighting</button><p id="sighting-status" role="status"></p></div>`;
     game.root.append(this.panel);
     this.$ = id => this.panel.querySelector(`#${id}`);
     this.$('close-naturalist').onclick = () => { this.toggle(false); this.button.focus(); };
     this.$('open-crew-journal').onclick = () => this.showJournal();
     this.$('photograph-wildlife').onclick = () => this.requestPhoto();
+    this.$('share-wildlife').onclick = () => this.shareSighting();
     this.$('toggle-study-notes').onclick = () => {
       const notes = this.$('study-notes'); notes.hidden = !notes.hidden;
       this.$('toggle-study-notes').setAttribute('aria-expanded', String(!notes.hidden));
@@ -68,7 +69,7 @@ export class CrewNaturalist {
     for (const button of [this.button, ...this.panel.querySelectorAll('button')]) secondaryTouchActivation(button);
     this.marker = document.createElement('div'); this.marker.id = 'study-marker'; this.marker.hidden = true; this.marker.setAttribute('aria-hidden', 'true'); game.root.append(this.marker);
     this.journal = document.createElement('dialog'); this.journal.id = 'crew-journal'; this.journal.setAttribute('aria-labelledby', 'crew-journal-title');
-    this.journal.innerHTML = '<header class="journal-heading"><div class="naturalist-heading"><div><p class="journal-eyebrow">KESTREL / NATURALIST NOTES</p><h2 id="crew-journal-title">Field journal</h2></div><button id="close-crew-journal">Close</button></div><label class="journal-jump" for="journal-sighting" hidden>Jump to<select id="journal-sighting"></select></label></header><p id="crew-journal-intro"></p><div id="crew-journal-entries"></div><p class="journal-footer">Your sightings and photographs stay in this browser, including in free exploration. Save a photo to keep a copy.</p>';
+    this.journal.innerHTML = '<header class="journal-heading"><div class="naturalist-heading"><div><p class="journal-eyebrow">KESTREL / NATURALIST NOTES</p><h2 id="crew-journal-title">Field journal</h2></div><button id="close-crew-journal">Close</button></div><label class="journal-jump" for="journal-sighting" hidden>Jump to<select id="journal-sighting"></select></label></header><p id="crew-journal-intro"></p><div id="crew-journal-entries"></div><p class="journal-footer">Personal observations and photographs stay in this browser. Shared crew reports stay with this voyage and appear in the ship’s log, where you can save their observer locations to the chart.</p>';
     game.root.append(this.journal); this.journal.querySelector('#close-crew-journal').onclick = () => this.journal.close();
     this.journalSelect = this.journal.querySelector('#journal-sighting');
     this.journalSelect.onchange = () => {
@@ -99,6 +100,7 @@ export class CrewNaturalist {
     this.$('toggle-study-notes').setAttribute('aria-expanded', 'false');
     this.pendingPhoto = this.capturePhoto = null; this.$('photo-status').textContent = '';
     this.$('photograph-wildlife').disabled = true;
+    this.$('share-wildlife').disabled = true; this.$('sighting-status').textContent = '';
     g.root.classList.toggle('studying-wildlife', on); this.button.setAttribute('aria-expanded', String(on));
     this.button.textContent = on ? 'End study [O]' : 'Observe [O]';
   }
@@ -106,6 +108,7 @@ export class CrewNaturalist {
     const diver = world.players[this.game.net.id]?.mode === 'diver';
     this.button.hidden = !diver; this.game.$('binoculars').hidden = diver;
     if (this.open && (!diver || !this.game.$('mission-complete').hidden)) this.toggle(false);
+    if (this.journal.open) this.renderJournal();
   }
   zoomBy(amount) {
     if (this.open && !this.game.dialogOpen()) this.lens.set(this.lens.target + amount);
@@ -113,7 +116,7 @@ export class CrewNaturalist {
   update(now) {
     if (!this.open) return;
     const g = this.game;
-    if (g.dialogOpen() || document.hidden || !g.net.ready) { this.hold.reset(); this.marker.hidden = true; this.pendingPhoto = this.capturePhoto = null; this.$('photograph-wildlife').disabled = true; return; }
+    if (g.dialogOpen() || document.hidden || !g.net.ready) { this.hold.reset(); this.marker.hidden = true; this.pendingPhoto = this.capturePhoto = null; this.$('photograph-wildlife').disabled = this.$('share-wildlife').disabled = true; return; }
     if (now - this.lastUpdate < 140) return;
     this.lastUpdate = now;
     this.$('study-zoom-reset').textContent = `${this.lens.value.toFixed(1)}×`;
@@ -135,7 +138,7 @@ export class CrewNaturalist {
       if (!sightlineClear(view, c.sample, (x, z) => world.floor(x, z), world.fauna.motion.rocks.rocks)) return false;
       // Expedition equipment can hide an animal even when the terrain ray is clear.
       this.point.set(c.sample.x, c.sample.y, c.sample.z).sub(p).normalize(); this.ray.set(p, this.point); this.ray.far = Math.max(0, c.distance - .2);
-      return !this.ray.intersectObjects([g.models.ship, g.models.wreck, g.models.crate, g.models.base], true).length;
+      return !this.ray.intersectObjects([g.models.ship, ...(g.models.wrecks || [g.models.wreck]), g.models.crate, g.models.base], true).length;
     };
     const candidate = projected.find(c => c.sample.id === this.hold.id && visible(c)) || projected.slice(0, 40).find(c =>
       (aim ? Math.hypot(c.x - aim.x, c.y - aim.y) < Math.max(.07, c.apparent * .5) : Math.hypot(c.x, c.y) < .7) && visible(c));
@@ -143,6 +146,10 @@ export class CrewNaturalist {
     this.candidate = candidate || null;
     this.marker.hidden = !candidate;
     const progress = this.hold.update(candidate?.sample.id, now); this.$('study-progress').value = progress;
+    const shared = candidate && g.state.sightings?.[candidate.sample.type];
+    this.$('share-wildlife').disabled = !!this.sharing || !candidate || progress < 1 || !!shared;
+    this.$('share-wildlife').textContent = shared ? 'Sighting shared ✓' : this.sharing ? 'Sharing…' : 'Share sighting';
+    if (this.sightingType !== candidate?.sample.type) { this.sightingType = candidate?.sample.type; this.$('sighting-status').textContent = ''; }
     this.$('photograph-wildlife').disabled = !candidate || progress < 1 || now - this.photoAt < 800;
     this.$('photograph-wildlife').textContent = candidate && this.photoFor(candidate.sample.type) ? 'Retake photo' : 'Photograph';
     this.$('photograph-wildlife').title = progress < 1 ? 'Keep an animal in view until it is identified.' : 'Press P or click to save this view in your field journal. Photograph again to replace it.';
@@ -168,20 +175,45 @@ export class CrewNaturalist {
   showJournal() {
     const g = this.game; if (!g.started || g.dialogOpen()) return;
     g.setLookout(false); g.keys.clear(); g.net.input({}); this.hold.reset(); this.marker.hidden = true;
+    this.renderJournal(true);
+    this.journal.showModal(); this.journal.scrollTop = 0;
+  }
+
+  renderJournal(force = false) {
+    const reports = this.game.state.sightings || {}, key = JSON.stringify([this.entries, reports]);
+    if (!force && this.journalKey === key) return; this.journalKey = key;
+    const entries = [...this.entries, ...Object.keys(reports).filter(type => !this.entries.some(e => e.type === type)).map(type => ({ type }))];
+    const selected = this.journalSelect.value;
     const list = this.journal.querySelector('#crew-journal-entries'); list.replaceChildren();
     const prompt = new Option('Choose a recorded animal', ''); prompt.disabled = true;
-    this.journalSelect.replaceChildren(prompt, ...this.entries.map(entry => new Option(FIELD_NOTES[entry.type][0], entry.type)));
-    this.journalSelect.value = ''; this.journal.querySelector('.journal-jump').hidden = this.entries.length < 2;
-    this.journal.querySelector('#crew-journal-intro').textContent = this.entries.length ? `${this.entries.length} animal ${this.entries.length === 1 ? 'group' : 'groups'} observed. Keep diving to discover more.` : 'Your sightings begin here. Enter the water, choose Observe, and keep an animal in view for a moment.';
-    for (const entry of this.entries) {
+    this.journalSelect.replaceChildren(prompt, ...entries.map(entry => new Option(FIELD_NOTES[entry.type][0], entry.type)));
+    this.journalSelect.value = force ? '' : selected; this.journal.querySelector('.journal-jump').hidden = entries.length < 2;
+    const sharedCount = Object.keys(reports).length;
+    this.journal.querySelector('#crew-journal-intro').textContent = entries.length ? `${this.entries.length} personal ${this.entries.length === 1 ? 'observation' : 'observations'} · ${sharedCount} animal ${sharedCount === 1 ? 'group' : 'groups'} shared by this crew. Keep diving to discover more.` : 'Your sightings begin here. Enter the water, choose Observe, and keep an animal in view for a moment.';
+    for (const entry of entries) {
       const [name, group, note] = FIELD_NOTES[entry.type], item = document.createElement('article');
       item.id = `journal-entry-${entry.type}`; item.tabIndex = -1;
       const h = document.createElement('h3'); h.id = `journal-title-${entry.type}`; h.textContent = name; item.setAttribute('aria-labelledby', h.id);
-      const meta = document.createElement('p'); meta.className = 'journal-meta'; meta.textContent = `${group} · First seen at ${entry.depth} m`;
+      const meta = document.createElement('p'); meta.className = 'journal-meta'; meta.textContent = `${group}${entry.depth !== undefined ? ` · First seen at ${entry.depth} m in your personal journal` : ' · Crew report'}`;
       const detail = document.createElement('p'); detail.textContent = note; item.append(h, meta, detail); list.append(item);
+      const report = reports[entry.type];
+      if (report) {
+        const shared = document.createElement('p'); shared.className = 'shared-sighting';
+        shared.textContent = `Shared by ${report.observer} · Expedition ${report.expedition} · Observer depth ${Math.max(0, Math.round(-report.position.y))} m. Location kept in the ship’s log.`;
+        item.append(shared);
+      }
       appendPhoto(item, entry.type, this.photoFor(entry.type));
     }
-    this.journal.showModal(); this.journal.scrollTop = 0;
+  }
+
+  async shareSighting() {
+    if (!this.open || this.game.dialogOpen() || this.sharing || this.$('share-wildlife').disabled || !this.candidate || !this.game.net.ready) return;
+    const type = this.candidate.sample.type; this.sharing = true; this.$('share-wildlife').disabled = true;
+    try {
+      await this.game.net.action('shareSighting', { type });
+      if (this.sightingType === type) this.$('sighting-status').textContent = 'Shared with the crew journal and ship’s log.';
+    } catch (error) { if (this.sightingType === type) this.$('sighting-status').textContent = error.message; }
+    finally { this.sharing = false; this.lastUpdate = 0; }
   }
 
   requestPhoto() {

@@ -3,6 +3,7 @@ import { HELM_STATION_Z } from './HelmRig.js';
 import { WINCH_CONTROL } from './RecoveryRig.js';
 import { BOARDING_LADDER } from './Boarding.js';
 import { RADIO_STATION } from './RadioStation.js';
+import { LOGBOOK_STATION } from './LogbookStation.js';
 
 // Station ranges are ship-local, so walking prompts stay stable as Kestrel
 // turns and heaves. A blocked nearby station must not suggest a distant one.
@@ -28,6 +29,9 @@ export function nearbyDeckStation(world, id) {
   if (Math.hypot(p.deckX - RADIO_STATION.x, p.deckZ - RADIO_STATION.z) < RADIO_STATION.reach) {
     const peers = Object.values(world.players).filter(other => other.connected && other.id !== id).length;
     return { station: 'radio', action: 'radio', text: peers ? `Deck radio · ${peers} crewmate${peers === 1 ? '' : 's'} on channel` : 'Deck radio · sailing solo' };
+  }
+  if (Math.hypot(p.deckX - LOGBOOK_STATION.x, p.deckZ - LOGBOOK_STATION.z) < LOGBOOK_STATION.reach) {
+    return { station: 'logbook', action: 'logbook', text: 'Ship’s logbook · read the crew’s voyage history' };
   }
   return null;
 }

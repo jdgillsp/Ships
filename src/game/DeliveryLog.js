@@ -16,6 +16,7 @@ export class DeliveryLog {
   }
   update(world) {
     this.button.hidden = world.mission !== 'complete';
+    if (world.research) { this.game.completed = true; return; }
     if (world.mission === 'complete' && !this.game.completed && !this.game.dialogOpen()) {
       this.game.completed = true; this.show();
     }
@@ -24,7 +25,8 @@ export class DeliveryLog {
     const g = this.game, record = g.state?.delivery;
     if (!g.started || g.state?.mission !== 'complete' || g.dialogOpen()) return;
     g.setLookout(false); g.naturalist.toggle(false); g.keys.clear(); g.net.input({});
-    g.$('mission-time').textContent = record ? `${Math.floor(record.time / 60)} min ${Math.floor(record.time % 60)} sec to delivery` : 'Archive received at Pelican Station';
+    const duration = record?.duration ?? record?.time;
+    g.$('mission-time').textContent = record ? `${Math.floor(duration / 60)} min ${Math.floor(duration % 60)} sec to delivery` : 'Archive received at Pelican Station';
     g.$('delivery-crew').hidden = !record;
     g.$('delivery-crew').textContent = record ? `Crew at delivery: ${record.crew.join(', ')}` : '';
     g.$('delivery-sender').hidden = !record;

@@ -2,6 +2,22 @@
 
 ## Kestrel: cooperative expeditions
 
+Crews can set a shared pickup course from a diver’s radio request. Navigation follows the diver’s live position, then restores the plotted expedition route once they are aboard.
+
+Research reports now preserve the crew’s completed dive totals, deepest recorded dive and strongest seas, keeping a small account of the voyage alongside the findings.
+
+Give Kestrel a shared crew inscription at Pelican Station. The nameplate above the aft cabin windows stays with your ship across expeditions and saved voyages.
+
+Longer post-delivery voyages now encounter passing weather fronts with fair intervals. The chart's dive forecast follows the same persistent clock as the sea, giving the crew a reason to weigh a longer descent against the return conditions.
+
+After the first archive delivery, Pelican Station offers **research requests**: choose an unsurveyed habitat, sail and survey with your crew, then return to file the report. The request, survey team and station receipt become part of your shared voyage history.
+
+Share an identified wildlife sighting from the observation notes to add it to the crew journal and voyage log. Crewmates can save the observer's location on the chart and plan a return visit; shared reports persist with the voyage.
+
+Explore an unassigned wreck and the crew keeps its location on the chart, with the first explorers recorded in the shared voyage log. Return visits and later salvage expeditions retain that discovery.
+
+After delivering an archive, open **Activities → Another salvage expedition** at Pelican Station to choose a different wreck. Three physical wreck sites support repeat voyages with the same crew, charts, discoveries and notes. Anchor at the station and bring connected divers aboard before accepting the next job.
+
 The local app now opens **The lost archive**, a playable expedition for **1–4 players** aboard one procedural cutter. Sail from Pelican Station to a marked reef wreck, anchor, dive, attach the archive crate, recover it with the winch, and deliver it home as the weather builds. Play solo or use **Invite crew** to share a private room. Players can switch freely between the helm, dive team, and winch.
 
 To run the complete game:

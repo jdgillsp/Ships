@@ -27,9 +27,8 @@ async function open(name, room) {
 const record = p => p.evaluate(() => window.__app.game.state.surveys.reef);
 try {
   const a = await open('Rowan'), room = await a.evaluate(() => window.__app.game.net.room), b = await open('Mira', room);
-  await a.keyboard.press('n'); await a.select('#voyage-destination', 'reef'); await a.click('#plot-course');
+  assert.equal(await a.evaluate(() => window.__app.game.state.course), null, 'An encountered habitat needs no plotted course');
   await b.waitForSelector('#survey-site:not([disabled]):not([hidden])');
-  await a.waitForFunction(() => { const m = document.getElementById('objective-marker'); return !m.hidden && !m.classList.contains('offscreen') && !m.textContent.includes('behind you'); });
   await a.click('#sound'); await a.waitForFunction(() => window.__app.game.sound.enabled && window.__app.game.sound.context);
   await a.evaluate(() => { const sound = window.__app.game.sound, tone = sound.tone; window.surveyTones = []; sound.tone = function(notes, ...rest) { window.surveyTones.push(notes); return tone.call(this, notes, ...rest); }; });
   // A crewmate can discover surveying from the activity panel and reach its
@@ -96,7 +95,8 @@ try {
       const s = document.getElementById('habitat-survey').getBoundingClientRect(), c = document.querySelector('.ship-console').getBoundingClientRect();
       return { bottom: s.bottom, top: c.top, right: s.right, chartLeft: document.querySelector('.nav-panel').getBoundingClientRect().left, width: innerWidth };
     });
-    assert.ok(overlap.bottom < overlap.top && overlap.right <= width, 'Phone survey status leaves room for controls');
+    await a.screenshot({ path: `${out}/layout-${width}.png` });
+    assert.ok(overlap.bottom < overlap.top && overlap.right <= width, `Phone survey status leaves room for controls: ${JSON.stringify(overlap)}`);
     assert.ok(overlap.right <= overlap.chartLeft - 8, 'Survey details stay clear of the phone chart');
     await a.screenshot({ path: `${out}/06-status-${width}.png` }); await a.keyboard.press('n');
   }
@@ -104,10 +104,13 @@ try {
   await a.waitForFunction(() => window.__app?.running && !document.getElementById('boot'), { timeout: 120000 });
   await a.click('#start-expedition'); await a.waitForFunction(() => window.__app.game.net.ready);
   assert.deepEqual(await record(a), completed, 'Rejoining retains the shared survey log');
+  await a.keyboard.press('n'); await a.click('#plot-course');
+  await a.waitForSelector('#voyage-chart:not([open])');
+  await a.waitForFunction(() => window.__app.game.state.course?.id === 'reef');
   await a.keyboard.press('n'); await a.click('#clear-course');
   await b.waitForFunction(() => window.__app.game.state.course === null);
-  await b.waitForSelector('#habitat-survey[hidden]');
-  assert.deepEqual(await record(b), completed); assert.equal(await b.$eval('#habitat-survey', e => e.hidden), true);
+  await b.waitForSelector('#habitat-survey:not([hidden])');
+  assert.deepEqual(await record(b), completed); assert.equal(await b.$eval('#habitat-survey', e => e.hidden), false, 'Local survey remains readable after clearing the course');
   assert.deepEqual(errors, []); console.log(JSON.stringify({ partial, teamStart, teamEnd, completed, errors }));
   await fs.writeFile(`${out}/result.json`, JSON.stringify({ partial, teamStart, teamEnd, completed, errors }, null, 2));
 } finally { await browser.close(); server.closeAllConnections(); server.close(); }
